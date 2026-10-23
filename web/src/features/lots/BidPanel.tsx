@@ -19,7 +19,7 @@ import { useSession } from '../auth/session';
 import { useBalance } from '../wallet/use-balance';
 import { CancelLotButton } from './CancelLotButton';
 import { Countdown } from './LotParts';
-import { bidSuggestions, isUnusualBid, viewerStatus } from './room-state';
+import { bidSuggestions, isUnusualBid, viewerPosition, viewerStatus } from './room-state';
 
 interface BidPanelProps {
   lot: LotDetail;
@@ -132,17 +132,26 @@ export function BidPanel({ lot, phase, onAccepted }: BidPanelProps) {
     );
   }
 
-  return <BidForm lot={lot} onAccepted={onAccepted} outbid={status === 'outbid'} />;
+  return (
+    <BidForm
+      lot={lot}
+      onAccepted={onAccepted}
+      outbid={status === 'outbid'}
+      position={viewerPosition(lot)}
+    />
+  );
 }
 
 function BidForm({
   lot,
   onAccepted,
   outbid,
+  position,
 }: {
   lot: LotDetail;
   onAccepted: (accepted: BidAccepted) => void;
   outbid: boolean;
+  position: number | null;
 }) {
   const queryClient = useQueryClient();
   const toast = useToast();
@@ -238,7 +247,8 @@ function BidForm({
     <Card>
       {outbid && (
         <Alert tone="warning" title="Você foi superado" className="mb-4">
-          Alguém cobriu o seu lance. Dê um novo lance para voltar à liderança.
+          Alguém cobriu o seu lance.{position !== null && <> Sua posição agora: {position}º.</>} Dê
+          um novo lance para voltar à liderança.
         </Alert>
       )}
 

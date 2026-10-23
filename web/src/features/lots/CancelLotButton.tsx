@@ -7,7 +7,7 @@ import { useToast } from '../../components/toast';
 import { Button } from '../../components/ui';
 import { messageForError } from '../../lib/messages';
 
-/** Cancelar lote (so o dono). Pede confirmacao: nao se desfaz e devolve o valor ao lider. */
+/** Cancelar lote (so o dono, so sem lances). Pede confirmacao: nao se desfaz. */
 export function CancelLotButton({
   lotId,
   title,
@@ -52,6 +52,15 @@ export function CancelLotButton({
     }
   }
 
+  // Regra do enunciado: so lote sem lances pode ser cancelado (o servidor tambem recusa com 409).
+  if (bidCount > 0) {
+    return (
+      <p className="text-sm text-stone-600 dark:text-stone-400">
+        Este lote já recebeu lances e não pode ser cancelado.
+      </p>
+    );
+  }
+
   return (
     <>
       <Button variant="danger" onClick={() => setOpen(true)}>
@@ -69,12 +78,7 @@ export function CancelLotButton({
         <p>
           <strong>{title}</strong>
         </p>
-        <p className="mt-2">
-          {bidCount > 0
-            ? `Há ${bidCount} ${bidCount === 1 ? 'lance' : 'lances'}. O licitante líder terá o valor devolvido e ninguém levará o item.`
-            : 'Ainda não há lances.'}{' '}
-          Esta ação não pode ser desfeita.
-        </p>
+        <p className="mt-2">Ainda não há lances. Esta ação não pode ser desfeita.</p>
       </ConfirmDialog>
     </>
   );

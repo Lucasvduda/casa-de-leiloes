@@ -57,7 +57,10 @@ export function createHarness(db: TestDb, clock = new FakeClock()) {
 
   const placeBid = new PlaceBid(base);
   const createLot = new CreateLot(base);
-  const cancelLot = new CancelLot(base);
+  /** Com estorno ao lider (opcao ALLOW_CANCEL_WITH_BIDS ligada). */
+  const cancelLot = new CancelLot({ ...base, allowCancelWithBids: true });
+  /** Padrao de producao: lote com lances nao pode ser cancelado. */
+  const strictCancelLot = new CancelLot(base);
   const settleLot = new SettleLot(base);
   const deposit = new Deposit({ uow: db.uow });
   const audit = new AuditLot({ uow: db.uow, mac });
@@ -203,7 +206,10 @@ export function createHarness(db: TestDb, clock = new FakeClock()) {
     placeBid,
     createLot,
     cancelLot,
+    strictCancelLot,
     settleLot,
+    /** Outra instancia (simula outro processo): nao compartilha o single-flight, so o banco. */
+    newSettleLot: () => new SettleLot(base),
     deposit,
     audit,
     seedUser,

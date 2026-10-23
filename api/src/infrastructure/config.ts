@@ -24,6 +24,13 @@ const schema = z.object({
    * imagem de producao em http://localhost (docker compose), onde nao ha HTTPS.
    */
   COOKIE_SECURE: booleanFromEnv.optional(),
+  /**
+   * Regra do enunciado: so lote SEM lances pode ser cancelado (padrao). Ligando esta opcao, o leiloeiro
+   * tambem cancela lote com lances e o lider e estornado na mesma transacao.
+   */
+  ALLOW_CANCEL_WITH_BIDS: booleanFromEnv.default(false),
+  /** Proxies confiaveis na frente do app (Render: 1). Veja o log "proxy_probe" depois do deploy. */
+  TRUST_PROXY_HOPS: z.coerce.number().int().min(0).max(5).default(1),
   /** Pasta do build do front-end. Se definida, a API serve os arquivos estaticos (mesma origem). */
   WEB_DIST_DIR: z.string().min(1).optional(),
 });

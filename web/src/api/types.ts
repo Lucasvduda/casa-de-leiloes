@@ -84,7 +84,8 @@ export interface LotDetail extends LotSummary {
   bids: PublicBid[];
   serverNow: string;
   result: LotResult;
-  viewerDetail: { ref: string } | null;
+  /** ref: como a pessoa aparece nos lances. hasBid/position vem do servidor (nao dependem da janela de 50). */
+  viewerDetail: { ref: string; hasBid: boolean; position: number | null } | null;
 }
 
 export type LedgerKind = 'deposit' | 'hold' | 'release' | 'settle_debit' | 'settle_credit';

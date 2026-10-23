@@ -119,11 +119,8 @@ describe('fases da vitrine', () => {
     ['live', ['1001', '1002', '1003', '1004', '1005', '1006']],
     ['scheduled', ['1007', '1008']],
     ['finished', ['1009', '1010']],
-    ['cancelled', ['1011']],
-    [
-      'all',
-      ['1001', '1002', '1003', '1004', '1005', '1006', '1007', '1008', '1009', '1010', '1011'],
-    ],
+    // all = tudo menos cancelados (o cancelado 1011 nao aparece na vitrine publica).
+    ['all', ['1001', '1002', '1003', '1004', '1005', '1006', '1007', '1008', '1009', '1010']],
   ])('phase=%s traz exatamente os lotes dessa fase', async (phase, expected) => {
     const res = await list(`?phase=${phase}&pageSize=50`);
     expect(res.status).toBe(200);
@@ -150,7 +147,8 @@ describe('fases da vitrine', () => {
     // Passou do fim e ninguem abriu a sala nem o agendador rodou: "ended" (apurando), nao "closed".
     expect(byId.get(lots['1009'])).toMatchObject({ phase: 'ended' });
     expect(byId.get(lots['1010'])).toMatchObject({ phase: 'closed', currentAmount: reais(100) });
-    expect(byId.get(lots['1011'])).toMatchObject({ phase: 'cancelled' });
+    // O cancelado so aparece para o dono (veja abaixo), nunca na vitrine publica.
+    expect(byId.has(lots['1011'])).toBe(false);
     expect(byId.get(lots['1001'])).toMatchObject({ sellerName: 'Leiloeiro Um' });
   });
 
@@ -158,6 +156,39 @@ describe('fases da vitrine', () => {
     // 1009 nunca foi aberto nem liquidado explicitamente depois de vencer pela listagem.
     expect(ids(await list('?phase=live&pageSize=50'))).not.toContain(lots['1009']);
     expect(ids(await list('?phase=finished'))).toContain(lots['1009']);
+  });
+});
+
+describe('lotes cancelados nao aparecem na vitrine publica', () => {
+  it('phase=cancelled responde 400 (para anonimo, licitante e leiloeiro)', async () => {
+    for (const client of [null, alice, seller1]) {
+      const res =
+        client === null
+          ? await list('?phase=cancelled')
+          : await client.get('/api/lots?phase=cancelled');
+      expect(res.status).toBe(400);
+      expect(res.body.error.code).toBe('VALIDATION_ERROR');
+    }
+  });
+
+  it('nenhuma combinacao publica devolve o lote cancelado', async () => {
+    for (const query of [
+      '',
+      '?phase=all&pageSize=50',
+      '?phase=finished',
+      '?phase=scheduled',
+      '?q=numero&phase=all&pageSize=50',
+    ]) {
+      expect(ids(await list(query)), query).not.toContain(lots['1011']);
+    }
+  });
+
+  it('o dono ainda ve o proprio cancelado em /me/lots', async () => {
+    const mine = await seller1.get('/api/me/lots?phase=cancelled&pageSize=50');
+    expect(mine.status).toBe(200);
+    expect(ids(mine)).toEqual(idsOf('1011'));
+    expect(mine.body.items[0]).toMatchObject({ phase: 'cancelled' });
+    expect(ids(await seller2.get('/api/me/lots?phase=cancelled'))).toEqual([]);
   });
 });
 
@@ -200,28 +231,16 @@ describe('paginacao', () => {
     for (const [page, size] of [
       [1, 4],
       [2, 4],
-      [3, 3],
+      [3, 2],
     ] as const) {
       const res = await list(`?phase=all&sort=newest&pageSize=4&page=${page}`);
-      expect(res.body.total).toBe(11);
+      expect(res.body.total).toBe(10);
       expect(res.body.items).toHaveLength(size);
       seen.push(...ids(res));
     }
-    expect(new Set(seen).size).toBe(11);
+    expect(new Set(seen).size).toBe(10);
     expect([...seen].sort()).toEqual(
-      idsOf(
-        '1001',
-        '1002',
-        '1003',
-        '1004',
-        '1005',
-        '1006',
-        '1007',
-        '1008',
-        '1009',
-        '1010',
-        '1011',
-      ).sort(),
+      idsOf('1001', '1002', '1003', '1004', '1005', '1006', '1007', '1008', '1009', '1010').sort(),
     );
   });
 
@@ -229,7 +248,7 @@ describe('paginacao', () => {
     const res = await list('?phase=all&pageSize=4&page=4');
     expect(res.status).toBe(200);
     expect(res.body.items).toEqual([]);
-    expect(res.body.total).toBe(11);
+    expect(res.body.total).toBe(10);
   });
 
   it('fase sem lotes: lista vazia, total 0', async () => {
@@ -298,13 +317,13 @@ describe('busca', () => {
       expect(res.status).toBe(200);
       expect(res.body.total).toBe(0);
     }
-    expect((await list('?phase=all&pageSize=50')).body.total).toBe(11);
+    expect((await list('?phase=all&pageSize=50')).body.total).toBe(10);
   });
 
   it('caracteres de controle viram espaco e q vazio equivale a sem busca', async () => {
-    expect((await list('?phase=all&q=%00%01%02')).body.total).toBe(11);
-    expect((await list('?phase=all&q=')).body.total).toBe(11);
-    expect((await list('?phase=all&q=%20%20')).body.total).toBe(11);
+    expect((await list('?phase=all&q=%00%01%02')).body.total).toBe(10);
+    expect((await list('?phase=all&q=')).body.total).toBe(10);
+    expect((await list('?phase=all&q=%20%20')).body.total).toBe(10);
   });
 
   it('acentos e emoji na busca nao quebram (UTF-8)', async () => {

@@ -17,12 +17,14 @@ export class CancelLot {
       mac: Mac;
       ids: IdGenerator;
       events: EventPublisher;
+      /** Padrao false: o enunciado so permite cancelar lote sem lances. true = cancela e estorna o lider. */
+      allowCancelWithBids?: boolean;
     },
   ) {}
 
   /**
-   * Cancela um lote do proprio leiloeiro. Se ja houver lider, o valor comprometido dele e
-   * estornado automaticamente (volta ao disponivel) na mesma transacao.
+   * Cancela um lote do proprio leiloeiro. Por padrao so lote SEM lances (regra do enunciado).
+   * Com allowCancelWithBids, o valor comprometido do lider e estornado na mesma transacao.
    * Lote que ja passou do fim nao pode mais ser cancelado: e liquidado.
    */
   async execute(actor: Actor, rawLotId: string): Promise<CancelResult> {
@@ -50,6 +52,14 @@ export class CancelLot {
       if (now.getTime() >= lot.endsAt.getTime()) {
         const settled = await settleLocked(repos, { mac, ids }, lot, now);
         return { kind: 'ended' as const, sold: settled.kind === 'sold' };
+      }
+
+      const hasBids = lot.leaderId !== null && lot.currentAmount !== null;
+      if (hasBids && this.deps.allowCancelWithBids !== true) {
+        throw new ConflictError(
+          'LOT_HAS_BIDS',
+          'Este lote ja recebeu lances e nao pode ser cancelado.',
+        );
       }
 
       let refunded = false;

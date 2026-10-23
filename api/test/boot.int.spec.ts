@@ -119,7 +119,7 @@ describe('subida com dados de demonstracao (SEED_ON_BOOT)', () => {
     expect((await ana.get('/api/me/bids')).body.total).toBe(3);
 
     const mine = (await seller.get('/api/me/lots?pageSize=50')).body;
-    expect(mine.total).toBe(6);
+    expect(mine.total).toBe(7);
     expect(mine.totals).toEqual({ received: reais(3_500), soldCount: 1 });
   });
 
@@ -176,7 +176,7 @@ describe('subida com dados de demonstracao (SEED_ON_BOOT)', () => {
     ]);
     expect(a).not.toBe(b);
     expect(await rowCount(db, 'users')).toBe(3);
-    expect(await rowCount(db, 'lots')).toBe(6);
+    expect(await rowCount(db, 'lots')).toBe(7);
     expect(await rowCount(db, 'bids')).toBe(11);
     const deposits = await db.pool.query(
       `SELECT count(*)::int AS n FROM wallet_ledger WHERE kind = 'deposit'`,

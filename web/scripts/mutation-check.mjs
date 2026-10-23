@@ -201,6 +201,30 @@ const mutations = [
     ['features/bidder/MyBidsPage.spec.ts'],
   ],
   [
+    'r01 superado fora da janela de 50 deixa de ser superado',
+    src('features/lots/room-state.ts'),
+    [['lot.viewerDetail?.hasBid === true || ', '']],
+    ['features/lots/room-state.spec.ts', 'features/lots/BidPanel.spec.tsx'],
+  ],
+  [
+    'r02 posicao conta lances em vez de licitantes diferentes',
+    src('features/lots/room-state.ts'),
+    [['seen.add(bid.bidder);', 'seen.add(String(bid.seq));']],
+    ['features/lots/room-state.spec.ts'],
+  ],
+  [
+    'r03 lance novo de outro mantem a posicao velha',
+    src('features/lots/room-state.ts'),
+    [['return { ...detail, position: positionInWindow(bids) };', 'return detail;']],
+    ['features/lots/room-state.spec.ts'],
+  ],
+  [
+    'x01 cancelar aparece em lote com lances',
+    src('features/lots/CancelLotButton.tsx'),
+    [['if (bidCount > 0) {', 'if (false) {']],
+    ['features/lots/BidPanel.spec.tsx'],
+  ],
+  [
     'e01 boundary nao captura o erro',
     src('app/ErrorBoundary.tsx'),
     [['return { failed: true };', 'return { failed: false };']],

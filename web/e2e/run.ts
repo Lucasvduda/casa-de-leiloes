@@ -261,6 +261,29 @@ async function main(): Promise<void> {
     await seller.page.waitForURL(/\/lotes\/|\/painel/);
     ok('leiloeiro criou um lote a partir do catalogo publico');
 
+    // 11b. Cancelamento: lote COM lances nao cancela (so explica); lote SEM lances cancela pela tela.
+    await seller.page.goto(`${base}/lotes/${target.id}`);
+    await seller.page.getByText('Este lote já recebeu lances e não pode ser cancelado.').waitFor();
+    if ((await seller.page.getByRole('button', { name: 'Cancelar lote' }).count()) !== 0) {
+      throw new Error('o botao Cancelar lote nao deveria existir em lote com lances');
+    }
+    await seller.page.goto(`${base}/painel`);
+    await seller.page.getByRole('button', { name: 'Cancelar lote' }).first().click();
+    await seller.page.getByRole('button', { name: 'Sim, cancelar lote' }).click();
+    await seller.page.getByText('Lote cancelado.').first().waitFor();
+    ok('lote com lances nao cancela; lote sem lances cancela pela tela');
+
+    // 11c. Cancelados nao aparecem na API publica (so para o dono).
+    const publicAll = (await (await fetch(`${base}/api/lots?phase=all&pageSize=50`)).json()) as {
+      items: { phase: string }[];
+    };
+    if (publicAll.items.some((l) => l.phase === 'cancelled')) {
+      throw new Error('a vitrine publica devolveu lote cancelado');
+    }
+    const publicCancelled = await fetch(`${base}/api/lots?phase=cancelled`);
+    if (publicCancelled.status !== 400) throw new Error('phase=cancelled publico deveria dar 400');
+    ok('lotes cancelados nao aparecem na vitrine publica (phase=cancelled responde 400)');
+
     // 12. Leiloeiro nao pode dar lance no proprio lote e nao acessa /meus-lances.
     await seller.page.goto(`${base}/meus-lances`);
     await seller.page.getByText('Esta área é de outro tipo de conta').waitFor();

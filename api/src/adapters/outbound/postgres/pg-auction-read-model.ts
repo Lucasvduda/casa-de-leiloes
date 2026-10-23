@@ -85,6 +85,7 @@ export class PgAuctionReadModel implements AuctionReadModel {
       const pattern = bind(`%${escapeLike(query.search)}%`);
       where.push(`(l.title ILIKE ${pattern} OR l.item->'attributes'->>'Artista' ILIKE ${pattern})`);
     }
+    if (query.excludeCancelled === true) where.push(`l.status <> 'cancelled'`);
     if (query.sellerId !== undefined) where.push(`l.seller_id = ${bind(query.sellerId)}`);
     if (query.bidderId !== undefined) {
       where.push(

@@ -146,6 +146,7 @@ async function assemble(
         writers: (seedClock) => ({
           createLot: new CreateLot({ ...base, clock: seedClock }),
           placeBid: new PlaceBid({ ...base, clock: seedClock }),
+          cancelLot: new CancelLot({ ...base, clock: seedClock }),
         }),
         items: OFFLINE_ITEMS,
         password: config.DEMO_PASSWORD,
@@ -158,13 +159,14 @@ async function assemble(
     logger,
     readinessProbe: postgresReadiness(pool),
     ...(config.WEB_DIST_DIR !== undefined ? { webDistDir: config.WEB_DIST_DIR } : {}),
+    trustProxyHops: config.TRUST_PROXY_HOPS,
     api: {
       auth,
       cookie: cookieSettings(config),
       queries,
       placeBid,
       createLot,
-      cancelLot: new CancelLot(base),
+      cancelLot: new CancelLot({ ...base, allowCancelWithBids: config.ALLOW_CANCEL_WITH_BIDS }),
       deposit,
       audit: new AuditLot({ uow, mac }),
       catalog,

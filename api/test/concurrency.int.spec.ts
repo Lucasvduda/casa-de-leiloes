@@ -258,7 +258,7 @@ describe('lance x encerramento x cancelamento', () => {
     await h.assertInvariants();
   });
 
-  it('12 liquidacoes simultaneas do mesmo lote: 1 "sold", o resto "already_final", vendedor creditado 1 vez', async () => {
+  it('12 liquidacoes simultaneas (12 instancias) do mesmo lote: 1 "sold", o resto "already_final", vendedor creditado 1 vez', async () => {
     const seller = await h.seedUser('seller');
     const [alice] = await bidders(1);
     const lot = await h.newLot(seller);
@@ -266,7 +266,7 @@ describe('lance x encerramento x cancelamento', () => {
     h.clock.advance(HOUR + 1000);
 
     const results = await Promise.all(
-      Array.from({ length: 12 }, () => h.settleLot.execute(lot.id)),
+      Array.from({ length: 12 }, () => h.newSettleLot().execute(lot.id)),
     );
 
     expect(results.filter((r) => r.kind === 'sold')).toHaveLength(1);

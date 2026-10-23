@@ -254,13 +254,13 @@ describe('liquidacao: idempotencia (nunca paga duas vezes)', () => {
     expect(receipts.rowCount).toBe(1);
   });
 
-  it('20 liquidacoes em paralelo: exatamente uma vende, o leiloeiro recebe UMA vez', async () => {
+  it('20 liquidacoes em paralelo (20 instancias, so o banco protege): exatamente uma vende, o leiloeiro recebe UMA vez', async () => {
     const { seller, bob, lot } = await scenario();
     await bid(bob, lot.id, reais(130));
     h.clock.advance(HOUR);
 
     const results = await Promise.all(
-      Array.from({ length: 20 }, () => h.settleLot.execute(lot.id)),
+      Array.from({ length: 20 }, () => h.newSettleLot().execute(lot.id)),
     );
     expect(results.filter((r) => r.kind === 'sold')).toHaveLength(1);
     expect(results.filter((r) => r.kind === 'already_final')).toHaveLength(19);
@@ -268,6 +268,47 @@ describe('liquidacao: idempotencia (nunca paga duas vezes)', () => {
     expect(await ledgerOf(seller.id, lot.id)).toEqual([
       { kind: 'settle_credit', amount: reais(130) },
     ]);
+  });
+});
+
+describe('liquidacao: single-flight dentro do processo', () => {
+  it('20 pedidos do mesmo lote na MESMA instancia viram uma liquidacao: mesmo resultado e um unico evento', async () => {
+    const { seller, bob, lot } = await scenario();
+    await bid(bob, lot.id, reais(130));
+    h.clock.advance(HOUR);
+    const before = h.events.ofType('lot_closed').filter((e) => e.lotId === lot.id).length;
+
+    const results = await Promise.all(
+      Array.from({ length: 20 }, () => h.settleLot.execute(lot.id)),
+    );
+    expect(results.every((r) => r.kind === 'sold')).toBe(true);
+    expect(new Set(results).size).toBe(1); // a mesma resposta, nao 20 transacoes
+    const closed = h.events.ofType('lot_closed').filter((e) => e.lotId === lot.id);
+    expect(closed.length - before).toBe(1);
+    expect((await h.walletOf(seller.id)).total).toBe(reais(130));
+
+    // Depois de terminar nao fica nada preso: o proximo pedido ja ve o lote encerrado.
+    expect((await h.settleLot.execute(lot.id)).kind).toBe('already_final');
+  });
+
+  it('lotes diferentes nao se esperam: cada um tem a sua liquidacao', async () => {
+    const a = await scenario();
+    const b = await scenario();
+    await bid(a.bob, a.lot.id, reais(110));
+    await bid(b.bob, b.lot.id, reais(120));
+    h.clock.advance(HOUR);
+    const [ra, rb] = await Promise.all([
+      h.settleLot.execute(a.lot.id),
+      h.settleLot.execute(b.lot.id),
+    ]);
+    expect(ra).toMatchObject({ kind: 'sold' });
+    expect(rb).toMatchObject({ kind: 'sold' });
+    expect(ra).not.toBe(rb);
+  });
+
+  it('lote inexistente ou id invalido rejeita (sem deixar pedido preso)', async () => {
+    await expect(h.settleLot.execute('nao-e-um-uuid')).rejects.toBeInstanceOf(Error);
+    await expect(h.settleLot.execute('nao-e-um-uuid')).rejects.toBeInstanceOf(Error);
   });
 });
 
@@ -463,6 +504,28 @@ describe('cancelamento', () => {
     expect(report.integrity).toEqual({ intact: true, issues: [] });
     expect(report.lot.status).toBe('cancelled');
     expect(report.bidCount).toBe(2); // o historico dos lances permanece
+  });
+
+  it('padrao estrito: com lances NAO cancela (LOT_HAS_BIDS) e nada muda no dinheiro nem no lote', async () => {
+    const { seller, bob, lot } = await scenario();
+    await bid(bob, lot.id, reais(100));
+    const bobBefore = await h.walletOf(bob.id);
+
+    await expect(h.strictCancelLot.execute(seller, lot.id)).rejects.toMatchObject({
+      code: 'LOT_HAS_BIDS',
+    });
+    expect((await h.lotRow(lot.id)).status).toBe('open');
+    expect(await h.walletOf(bob.id)).toEqual(bobBefore);
+    expect(await ledgerOf(bob.id, lot.id)).toEqual([{ kind: 'hold', amount: reais(100) }]);
+  });
+
+  it('padrao estrito: sem lances cancela normalmente', async () => {
+    const { seller, lot } = await scenario();
+    expect(await h.strictCancelLot.execute(seller, lot.id)).toEqual({
+      cancelled: true,
+      refunded: false,
+    });
+    expect((await h.lotRow(lot.id)).status).toBe('cancelled');
   });
 
   it('estorna so o lote cancelado; o comprometido em outro lote continua', async () => {

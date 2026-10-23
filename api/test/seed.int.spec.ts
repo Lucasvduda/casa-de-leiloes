@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { DEMO_ACCOUNTS, ensureDemoData } from '../src/application/seed/demo-data.js';
 import type { DemoDataDeps } from '../src/application/seed/demo-data.js';
 import type { Clock } from '../src/application/ports.js';
+import { CancelLot } from '../src/application/usecases/cancel-lot.js';
 import { CreateLot } from '../src/application/usecases/create-lot.js';
 import { Deposit } from '../src/application/usecases/deposit.js';
 import { PlaceBid } from '../src/application/usecases/place-bid.js';
@@ -35,6 +36,7 @@ async function setup(tweak: (deps: DemoDataDeps) => DemoDataDeps = (deps) => dep
       writers: (seedClock: Clock) => ({
         createLot: new CreateLot({ ...http.base, clock: seedClock }),
         placeBid: new PlaceBid({ ...http.base, clock: seedClock }),
+        cancelLot: new CancelLot({ ...http.base, clock: seedClock }),
       }),
       items: OFFLINE_ITEMS,
       password: 'Demo-Leilao-2026!',
@@ -61,13 +63,13 @@ async function setup(tweak: (deps: DemoDataDeps) => DemoDataDeps = (deps) => dep
 }
 
 describe('ensureDemoData', () => {
-  it('cria contas, saldo e 6 lotes em todos os estados, com historico integro', async () => {
+  it('cria contas, saldo e 7 lotes em todos os estados, com historico integro', async () => {
     const t = await setup();
     const summary = await ensureDemoData(t.deps());
-    expect(summary).toEqual({ usersCreated: 3, lotsCreated: 6, bidsPlaced: 11 });
+    expect(summary).toEqual({ usersCreated: 3, lotsCreated: 7, bidsPlaced: 11 });
     expect(await t.snapshot()).toEqual({
       users: 3,
-      lots: 6,
+      lots: 7,
       bids: 11,
       ledger: expect.any(Number),
       receipts: 1,
@@ -79,6 +81,7 @@ describe('ensureDemoData', () => {
     expect(Object.fromEntries(states.rows.map((r) => [r.status, r.n]))).toEqual({
       open: 4,
       closed: 2,
+      cancelled: 1,
     });
 
     // Toda cadeia de hash, extrato e saldo consistentes (as mesmas invariantes das demais suites).
@@ -148,7 +151,7 @@ describe('ensureDemoData', () => {
       });
     }
     const before = await t.snapshot();
-    expect(before.lots).toBe(61);
+    expect(before.lots).toBe(62);
     const again = await ensureDemoData(t.deps());
     expect(again).toEqual({ usersCreated: 0, lotsCreated: 0, bidsPlaced: 0 });
     expect(await t.snapshot()).toEqual(before);
@@ -159,6 +162,7 @@ describe('ensureDemoData', () => {
       ...deps,
       writers: (clock) => ({
         createLot: deps.writers(clock).createLot,
+        cancelLot: deps.writers(clock).cancelLot,
         placeBid: {
           execute: async () => ({ accepted: false, reason: 'INSUFFICIENT_FUNDS' }),
         } as unknown as PlaceBid,
@@ -185,6 +189,7 @@ describe('ensureDemoData', () => {
         const real = deps.writers(clock);
         return {
           createLot: real.createLot,
+          cancelLot: real.cancelLot,
           placeBid: {
             execute: async (cmd) => {
               calls += 1;
@@ -202,7 +207,7 @@ describe('ensureDemoData', () => {
     calls = 100; // sem novas quedas
     await ensureDemoData(t.deps());
     const final = await t.snapshot();
-    expect(final).toMatchObject({ users: 3, lots: 6, bids: 11, receipts: 1 });
+    expect(final).toMatchObject({ users: 3, lots: 7, bids: 11, receipts: 1 });
     const deposits = await t.db.pool.query(
       `SELECT count(*)::int AS n FROM wallet_ledger WHERE kind = 'deposit'`,
     );

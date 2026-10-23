@@ -93,6 +93,36 @@ describe('log de requisicao do app', () => {
   });
 });
 
+describe('IP real atras de proxy (TRUST_PROXY_HOPS)', () => {
+  async function ipSeenBy(hops: number | undefined): Promise<string> {
+    const lines: string[] = [];
+    const sink = new Writable({
+      write(chunk, _enc, done) {
+        lines.push(String(chunk));
+        done();
+      },
+    });
+    const app = createApp({
+      logger: pino(sink),
+      readinessProbe: async () => true,
+      ...(hops === undefined ? {} : { trustProxyHops: hops }),
+    });
+    // Cadeia: visitante 203.0.113.9 -> CDN 198.51.100.7 -> balanceador (o "socket" do app).
+    await request(app).get('/api/nada').set('X-Forwarded-For', '203.0.113.9, 198.51.100.7');
+    const probe = lines
+      .map((l) => JSON.parse(l) as { msg: string; ip?: string; forwardedFor?: string })
+      .find((l) => l.msg === 'proxy_probe');
+    expect(probe?.forwardedFor).toBe('203.0.113.9, 198.51.100.7');
+    return probe?.ip ?? '';
+  }
+
+  it('com 1 salto confiavel (padrao) o IP e o do ultimo proxy; com 2, o do visitante', async () => {
+    expect(await ipSeenBy(undefined)).toBe('198.51.100.7');
+    expect(await ipSeenBy(1)).toBe('198.51.100.7');
+    expect(await ipSeenBy(2)).toBe('203.0.113.9');
+  });
+});
+
 describe('integracao com o pino (como o logger real usa)', () => {
   it('o objeto de erro do Postgres gravado no log nao carrega o e-mail', () => {
     const lines: string[] = [];

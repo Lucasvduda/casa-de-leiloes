@@ -29,6 +29,7 @@ const BY_CODE: Record<string, string> = {
   LOT_ENDED: 'Este lote já encerrou.',
   SELLER_CANNOT_BID: 'Leiloeiros não dão lances.',
   ALREADY_LEADING: 'Você já está liderando este lote.',
+  LOT_HAS_BIDS: 'Este lote já recebeu lances e não pode mais ser cancelado.',
   LOT_ALREADY_CANCELLED: 'Este lote já foi cancelado.',
   LOT_ALREADY_CLOSED: 'Este lote já encerrou e foi liquidado; não pode mais ser cancelado.',
 

@@ -1,6 +1,7 @@
 import type { Actor, Clock, ItemSnapshot, UnitOfWork } from '../ports.js';
 import type { AuctionQueries } from '../usecases/auction-queries.js';
 import type { AuthService } from '../usecases/auth.js';
+import type { CancelLot } from '../usecases/cancel-lot.js';
 import type { CreateLot } from '../usecases/create-lot.js';
 import type { Deposit } from '../usecases/deposit.js';
 import type { PlaceBid } from '../usecases/place-bid.js';
@@ -28,6 +29,8 @@ interface LotTemplate {
   readonly endsAtOffsetMs: number;
   readonly startingBid: number;
   readonly minIncrement: number;
+  /** Lote criado e depois cancelado pelo leiloeiro (so e permitido sem lances). */
+  readonly cancelled?: boolean;
   readonly bids: readonly {
     readonly by: Bidder;
     readonly amount: number;
@@ -37,7 +40,7 @@ interface LotTemplate {
 
 /**
  * Cobre todos os estados que a avaliacao precisa ver: ao vivo com lances (Ana lidera), ao vivo
- * com Ana superada, ao vivo sem lances, agendado, encerrado com vencedor e encerrado sem vencedor.
+ * com Ana superada, ao vivo sem lances, agendado, encerrado com vencedor, encerrado sem vencedor e cancelado.
  * Os lotes ao vivo duram semanas (o seed roda uma vez), salvo um que fecha em poucas horas para
  * mostrar a contagem regressiva e o anti-sniping.
  */
@@ -110,6 +113,16 @@ const TEMPLATES: readonly LotTemplate[] = [
     minIncrement: reais(100),
     bids: [],
   },
+  {
+    key: 'cancelado',
+    itemIndex: 6,
+    startsAtOffsetMs: -2 * DAY,
+    endsAtOffsetMs: 12 * DAY,
+    startingBid: reais(900),
+    minIncrement: reais(50),
+    cancelled: true,
+    bids: [],
+  },
 ];
 
 /** Cada operacao do seed usa uma chave fixa: repetir o seed nunca duplica deposito nem lance. */
@@ -135,7 +148,11 @@ export interface DemoDataDeps {
   readonly uow: UnitOfWork;
   readonly clock: Clock;
   /** Casos de uso de escrita ligados a um relogio informado (o seed grava no passado). */
-  readonly writers: (clock: Clock) => { createLot: CreateLot; placeBid: PlaceBid };
+  readonly writers: (clock: Clock) => {
+    createLot: CreateLot;
+    placeBid: PlaceBid;
+    cancelLot: CancelLot;
+  };
   /** Obras usadas nos lotes (catalogo offline embutido: o seed nunca depende de rede). */
   readonly items: readonly ItemSnapshot[];
   readonly password: string;
@@ -239,6 +256,17 @@ export async function ensureDemoData(deps: DemoDataDeps): Promise<DemoDataSummar
         break;
       }
       if (!result.replayed) bidsPlaced += 1;
+    }
+
+    // Cancelado (sem lances): retomavel, entao tenta sempre e ignora "ja cancelado".
+    if (template.cancelled === true) {
+      clock.set(startedAt);
+      try {
+        await writers.cancelLot.execute(seller, lotId);
+      } catch (error) {
+        const code = (error as { code?: unknown }).code;
+        if (code !== 'LOT_ALREADY_CANCELLED') throw error;
+      }
     }
 
     // Lotes que ja passaram do fim: liquida agora (idempotente; o agendador faria o mesmo).

@@ -31,7 +31,32 @@ export function viewerStatus(lot: LotDetail): ViewerStatus {
   if (lot.viewer === null) return 'anonymous';
   if (lot.viewer.isSeller) return 'seller';
   if (lot.viewer.isLeading) return 'leading';
-  return lot.bids.some((bid) => bid.mine) ? 'outbid' : 'none';
+  // O servidor informa se a pessoa ja deu lance (mesmo que o lance dela tenha saido da janela de 50).
+  const hasBid = lot.viewerDetail?.hasBid === true || lot.bids.some((bid) => bid.mine);
+  return hasBid ? 'outbid' : 'none';
+}
+
+/**
+ * Posicao da pessoa entre os licitantes (1 = liderando), ou null se nao deu lance / nao da para saber.
+ * O valor so cresce com o numero do lance, entao a ordem dos licitantes e a ordem em que aparecem do
+ * lance mais novo para o mais antigo. Se o lance dela saiu da janela, usa a posicao do servidor
+ * (que pode ter ficado velha: nesse caso o applyBid zera, e a tela nao mostra posicao).
+ */
+export function viewerPosition(lot: LotDetail): number | null {
+  const status = viewerStatus(lot);
+  if (status === 'leading') return 1;
+  if (status !== 'outbid') return null;
+  const fromWindow = positionInWindow(lot.bids);
+  return fromWindow ?? lot.viewerDetail?.position ?? null;
+}
+
+function positionInWindow(bids: LotDetail['bids']): number | null {
+  const seen = new Set<string>();
+  for (const bid of bids) {
+    if (bid.mine) return seen.size + 1;
+    seen.add(bid.bidder);
+  }
+  return null;
 }
 
 /** Evento que chegou com numero de ordem alem do proximo esperado: perdemos algo, hora de recarregar. */
@@ -49,16 +74,31 @@ export function applyBid(lot: LotDetail, event: BidEventPayload): LotDetail {
     amount: event.amount,
     placedAt: event.placedAt,
   };
+  const bids = [entry, ...lot.bids].slice(0, MAX_BIDS_IN_ROOM);
   return {
     ...lot,
     currentAmount: event.amount,
     bidCount: event.bidCount,
     endsAt: event.endsAt,
     minimumNextBid: event.minimumNextBid ?? event.amount + lot.minIncrement,
-    bids: [entry, ...lot.bids].slice(0, MAX_BIDS_IN_ROOM),
+    bids,
+    viewerDetail: nextViewerDetail(lot, bids, event.mine),
     viewer: lot.viewer === null ? null : { ...lot.viewer, isLeading: event.mine },
     serverNow: event.serverNow,
   };
+}
+
+/** Depois de um lance: quem deu o lance e o lider; os demais so sabem a posicao se o lance deles esta na janela. */
+function nextViewerDetail(
+  lot: LotDetail,
+  bids: LotDetail['bids'],
+  mine: boolean,
+): LotDetail['viewerDetail'] {
+  const detail = lot.viewerDetail;
+  if (detail === null) return null;
+  if (mine) return { ...detail, hasBid: true, position: 1 };
+  if (!detail.hasBid) return detail;
+  return { ...detail, position: positionInWindow(bids) };
 }
 
 /** A resposta do POST de lance, no mesmo formato dos eventos (para a tela nao depender so do SSE). */

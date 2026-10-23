@@ -386,6 +386,32 @@ describe('ciclo completo do leilao, ponta a ponta por HTTP', () => {
     expect(again.body.error.code).toBe('LOT_ALREADY_CANCELLED');
   });
 
+  it('padrao estrito (producao): cancelar com lances responde 409 LOT_HAS_BIDS e nao estorna', async () => {
+    const strict = createHttpHarness(db, { clock, allowCancelWithBids: false });
+    const s = new Client(strict.app);
+    expect((await s.register({ role: 'seller', displayName: 'Casa Estrita' })).res.status).toBe(
+      201,
+    );
+    const bob = new Client(strict.app);
+    expect((await bob.register({ role: 'bidder' })).res.status).toBe(201);
+    expect((await bob.post('/api/wallet/deposits', { amount: reais(1_000) })).status).toBe(201);
+
+    const created = await s.post('/api/lots', lotBody());
+    expect(created.status, JSON.stringify(created.body)).toBe(201);
+    const lotId = created.body.lot.id as string;
+
+    const semLances = await s.post(`/api/lots/${lotId}/bids`, { amount: reais(300) });
+    expect(semLances.status).toBe(403); // leiloeiro nao da lance: a rota e so de licitante
+    expect((await bob.post(`/api/lots/${lotId}/bids`, { amount: reais(300) })).status).toBe(201);
+
+    const cancel = await s.post(`/api/lots/${lotId}/cancel`);
+    expect(cancel.status).toBe(409);
+    expect(cancel.body.error.code).toBe('LOT_HAS_BIDS');
+    expect((await bob.get('/api/wallet')).body.committed).toBe(reais(300));
+    const lot = (await request(strict.app).get(`/api/lots/${lotId}`)).body.lot;
+    expect(lot.phase).toBe('live');
+  });
+
   it('cancelar depois do fim liquida e responde 409 LOT_ENDED', async () => {
     const s = await seller();
     const bob = await bidder();

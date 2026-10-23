@@ -12,6 +12,7 @@ import {
   parseServerNow,
   parseSnapshot,
   phaseAt,
+  viewerPosition,
   viewerStatus,
 } from './room-state';
 
@@ -37,6 +38,86 @@ describe('phaseAt (relogio do servidor decide a fase)', () => {
     expect(phaseAt({ ...lot, status: 'closed' }, NOW)).toBe('closed');
     expect(phaseAt({ ...lot, status: 'cancelled' }, NOW)).toBe('cancelled');
     expect(phaseAt({ ...lot, status: 'cancelled' }, NOW - 99 * MIN)).toBe('cancelled');
+  });
+});
+
+const NOT_LEADING = { isSeller: false, isLeading: false };
+const bidOf = (seq: number, bidder: string, mine = false) => ({
+  seq,
+  bidder,
+  mine,
+  amount: 10_000 + seq * 1_000,
+  placedAt: iso(-seq),
+});
+
+describe('viewerStatus e viewerPosition vindos do servidor (nao so da janela de 50)', () => {
+  it('superado cujo lance saiu da janela: o servidor diz que ele ja deu lance', () => {
+    const lot = makeLot({
+      viewer: NOT_LEADING,
+      bids: [bidOf(60, 'B'), bidOf(59, 'A')], // nenhum e meu
+      viewerDetail: { ref: 'C', hasBid: true, position: 3 },
+    });
+    expect(viewerStatus(lot)).toBe('outbid');
+    expect(viewerPosition(lot)).toBe(3); // sem lance meu na janela: usa a posicao do servidor
+  });
+
+  it('quem nunca deu lance continua sem status e sem posicao', () => {
+    const lot = makeLot({
+      viewer: NOT_LEADING,
+      bids: [bidOf(2, 'B'), bidOf(1, 'A')],
+      viewerDetail: { ref: 'C', hasBid: false, position: null },
+    });
+    expect(viewerStatus(lot)).toBe('none');
+    expect(viewerPosition(lot)).toBeNull();
+  });
+
+  it('lider e 1o; anonimo e leiloeiro nao tem posicao', () => {
+    expect(
+      viewerPosition(
+        makeLot({ viewer: { isSeller: false, isLeading: true }, bids: [bidOf(1, 'A', true)] }),
+      ),
+    ).toBe(1);
+    expect(viewerPosition(makeLot({ viewer: null }))).toBeNull();
+    expect(viewerPosition(makeLot({ viewer: { isSeller: true, isLeading: false } }))).toBeNull();
+  });
+
+  it('com o lance na janela, a posicao e quantos licitantes DIFERENTES cobriram + 1', () => {
+    // Do mais novo para o mais antigo: B, A, B, EU, A. Cobriram o meu lance: B e A (2 pessoas).
+    const lot = makeLot({
+      viewer: NOT_LEADING,
+      bids: [bidOf(5, 'B'), bidOf(4, 'A'), bidOf(3, 'B'), bidOf(2, 'EU', true), bidOf(1, 'A')],
+      viewerDetail: { ref: 'EU', hasBid: true, position: 99 },
+    });
+    expect(viewerPosition(lot)).toBe(3);
+  });
+
+  it('applyBid: o meu lance vira 1o; lance de outro recalcula pela janela; sem lance meu na janela, zera', () => {
+    const base = makeLot({
+      viewer: NOT_LEADING,
+      bidCount: 2,
+      bids: [bidOf(2, 'EU', true), bidOf(1, 'A')],
+      viewerDetail: { ref: 'EU', hasBid: true, position: 1 },
+    });
+    const cover = applyBid(base, makeBid({ seq: 3, bidCount: 3, bidder: 'A', mine: false }));
+    expect(cover.viewerDetail).toMatchObject({ hasBid: true, position: 2 });
+    const mineAgain = applyBid(cover, makeBid({ seq: 4, bidCount: 4, bidder: 'EU', mine: true }));
+    expect(mineAgain.viewerDetail).toMatchObject({ hasBid: true, position: 1 });
+
+    // Meu unico lance sai da janela de 50: a posicao exata deixa de ser conhecida (nao mostra errado).
+    let lot = makeLot({
+      viewer: NOT_LEADING,
+      bidCount: 50,
+      bids: [
+        bidOf(50, 'A'),
+        ...Array.from({ length: 48 }, (_, i) => bidOf(49 - i, 'B')),
+        bidOf(1, 'EU', true),
+      ],
+      viewerDetail: { ref: 'EU', hasBid: true, position: 3 },
+    });
+    lot = applyBid(lot, makeBid({ seq: 51, bidCount: 51, bidder: 'A', mine: false }));
+    expect(lot.bids).toHaveLength(MAX_BIDS_IN_ROOM);
+    expect(lot.viewerDetail).toMatchObject({ hasBid: true, position: null });
+    expect(viewerStatus(lot)).toBe('outbid');
   });
 });
 
@@ -151,7 +232,7 @@ describe('hasGap', () => {
 describe('bidAcceptedToEvent', () => {
   it('traduz a resposta do POST para o formato do evento, marcando como meu', () => {
     const lot = makeLot({
-      viewerDetail: { ref: 'Licitante Z9' },
+      viewerDetail: { ref: 'Licitante Z9', hasBid: true, position: 1 },
       viewer: { isSeller: false, isLeading: false },
     });
     const event = bidAcceptedToEvent(lot, {
@@ -175,7 +256,7 @@ describe('bidAcceptedToEvent', () => {
 
   it('o mesmo lance chegando pelo SSE depois do POST nao duplica', () => {
     const lot = makeLot({
-      viewerDetail: { ref: 'Licitante Z9' },
+      viewerDetail: { ref: 'Licitante Z9', hasBid: true, position: 1 },
       viewer: { isSeller: false, isLeading: false },
     });
     const afterPost = applyBid(

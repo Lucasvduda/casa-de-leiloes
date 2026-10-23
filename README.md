@@ -33,36 +33,39 @@ e quem é superado recebe o aviso na hora. Depois abra **Histórico de lances** 
 Atende ao enunciado e acrescenta o que um leilão de verdade exigiria.
 
 - **Leiloeiro** cria lotes escolhendo um item na busca do catálogo público (com foto), define lance
-  inicial, incremento mínimo e duração. Pode cancelar o lote (veja as regras abaixo).
-- **Licitante** deposita saldo (dinheiro de mentira), vê lotes abertos, encerrados e cancelados, dá
-  lances e acompanha **Meus lances** (com os lotes arrematados) e a carteira.
+  inicial, incremento mínimo e duração. Pode cancelar um lote que **ainda não recebeu lances**.
+- **Licitante** deposita saldo (dinheiro de mentira), vê os lotes ao vivo, agendados e encerrados,
+  dá lances e acompanha **Meus lances** (com os lotes arrematados) e a carteira. Na sala do lote vê se
+  está liderando ou foi superado e **em que posição está** ("Sua posição agora: 2º").
 - **Ao vivo:** lances, tempo restante e encerramento chegam por _Server-Sent Events_. O relógio exibido
   é corrigido pelo horário do servidor (o relógio do navegador do usuário não decide nada).
 - **Liquidação automática:** um agendador encerra lotes vencidos a cada 3 s, debita o vencedor,
   credita o leiloeiro e emite o comprovante.
 - **Histórico de lances verificável:** qualquer pessoa, sem login, confere a integridade dos lances de um lote.
-- **Seed:** 1 leiloeiro, 2 licitantes e 6 lotes em todos os estados (aberto com lances, aberto sem
-  lances, no fim, encerrado com vencedor, encerrado sem lances, cancelado).
+- **Seed:** 1 leiloeiro, 2 licitantes e **7 lotes** em todos os estados: 3 ao vivo (um com a Ana
+  liderando, um que fecha em poucas horas, um sem lances), 1 agendado, 2 encerrados (um vendido, um sem
+  lances) e 1 **cancelado** (só aparece no painel do leiloeiro, nunca na vitrine pública).
 
 ## Regras de negócio (e decisões que tomei onde o enunciado não definia)
 
-| Tema                    | Regra                                                                                                                                                            |
-| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Dinheiro                | Inteiro em **centavos** do começo ao fim (nunca `float`). Valores em reais só na tela.                                                                           |
-| Lance mínimo            | Primeiro lance ≥ lance inicial; os seguintes ≥ lance atual + incremento mínimo.                                                                                  |
-| Quem pode dar lance     | Só licitante, em lote aberto e dentro do prazo, **nunca** no próprio lote nem sobre o próprio lance vencedor.                                                    |
-| Saldo                   | O valor do lance fica **reservado** (bloqueado) na carteira. Ao ser superado, o lance anterior é devolvido na mesma transação.                                   |
-| Anti-sniping            | Lance nos **últimos 2 minutos** estende o fim para _instante do lance + 2 min_. Evita o lance de última hora sem chance de resposta.                             |
-| Cancelamento            | O leiloeiro só cancela lote **aberto**. Se já houver lances, o líder é **reembolsado** e o histórico é preservado.                                               |
-| Encerramento            | Lote sem lance encerra sem vencedor. Com lance, o líder vence, paga o valor do lance e o leiloeiro recebe.                                                       |
-| Limites                 | Depósito: até R$ 100.000 por vez. Saldo máximo: R$ 10.000.000. Duração do lote: 1 min a 30 dias.                                                                 |
-| Repetição de requisição | Lances e depósitos aceitam `Idempotency-Key`. O front envia uma chave por tentativa, então duplo clique ou nova tentativa por rede ruim **não duplica** o lance. |
-| Concorrência            | Cada lote é serializado por `SELECT … FOR UPDATE`. Dois lances simultâneos nunca vencem os dois: um é aceito e o outro recebe "lance baixo demais".              |
+| Tema                    | Regra                                                                                                                                                                                |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Dinheiro                | Inteiro em **centavos** do começo ao fim (nunca `float`). Valores em reais só na tela.                                                                                               |
+| Lance mínimo            | Primeiro lance ≥ lance inicial; os seguintes ≥ lance atual + incremento mínimo.                                                                                                      |
+| Quem pode dar lance     | Só licitante, em lote aberto e dentro do prazo, **nunca** no próprio lote nem sobre o próprio lance vencedor.                                                                        |
+| Saldo                   | O valor do lance fica **reservado** (bloqueado) na carteira. Ao ser superado, o lance anterior é devolvido na mesma transação.                                                       |
+| Anti-sniping            | Lance nos **últimos 2 minutos** estende o fim para _instante do lance + 2 min_. Evita o lance de última hora sem chance de resposta. **Não há teto de extensões** (veja os limites). |
+| Cancelamento            | Conforme o enunciado, o leiloeiro só cancela lote **sem lances**: com lances a API responde `409 LOT_HAS_BIDS` e nada muda. Depois do prazo o lote é liquidado, não cancelado.       |
+| Vitrine pública         | Mostra lotes ao vivo, agendados e encerrados. **Lote cancelado nunca aparece** na API pública (`phase=cancelled` responde 400); só o dono o vê, no painel.                           |
+| Encerramento            | Lote sem lance encerra sem vencedor. Com lance, o líder vence, paga o valor do lance e o leiloeiro recebe.                                                                           |
+| Limites                 | Depósito: até R$ 100.000 por vez. Saldo máximo: R$ 10.000.000. Duração do lote: 1 min a 30 dias.                                                                                     |
+| Repetição de requisição | Lances e depósitos aceitam `Idempotency-Key`. O front envia uma chave por tentativa, então duplo clique ou nova tentativa por rede ruim **não duplica** o lance.                     |
+| Concorrência            | Cada lote é serializado por `SELECT … FOR UPDATE`. Dois lances simultâneos nunca vencem os dois: um é aceito e o outro recebe "lance baixo demais".                                  |
 
-> **Atenção, comportamento que difere do enunciado:** o enunciado fala em cancelar apenas lote "sem
-> lances". Aqui o cancelamento com lances é permitido e **devolve o saldo ao líder**, decisão confirmada
-> por mim porque trancar o leiloeiro e o licitante num lote parado seria pior. Se a regra estrita for
-> desejada, basta uma linha em `api/src/application/usecases/cancel-lot.ts`.
+> **Opção fora do padrão:** com `ALLOW_CANCEL_WITH_BIDS=true` o leiloeiro também cancela lote com
+> lances, e o líder é **estornado** (o valor reservado volta ao saldo) na mesma transação. Vem
+> **desligada**, porque o enunciado só prevê cancelamento sem lances. A tela segue a regra estrita
+> (esconde o botão em lote com lances); a opção vale para a API.
 
 ## Arquitetura
 
@@ -118,6 +121,36 @@ Lista fechada (qualquer outra rota responde 404 no formato padrão de erro).
 
 Erros sempre seguem `{ "error": { "code", "message", "requestId", "details?" } }`.
 
+`GET /api/lots` aceita `phase` (`live`, `scheduled`, `finished`, `all`), `q`, `sort`, `page` e `pageSize`.
+`all` significa "tudo menos cancelados". Valor de dinheiro é sempre em **centavos** (`250000` = R$ 2.500,00).
+
+### Testando a API sem o front (curl ou Postman)
+
+As escritas (`POST`) exigem **cookie de sessão**, o cabeçalho **`X-CSRF-Token`** (devolvido no login) e
+`Content-Type: application/json`. Sem eles a resposta é `403` (`CSRF_INVALID`) ou `415`, de propósito.
+
+```bash
+BASE=https://<seu-app>.onrender.com
+
+# 1. Login: guarda o cookie em jar.txt e devolve o csrfToken no corpo
+curl -s -c jar.txt -H 'Content-Type: application/json' \
+  -d '{"email":"ana@demo.leilao","password":"Demo-Leilao-2026!"}' $BASE/api/auth/login
+
+# 2. Escolha um lote ao vivo (público, sem login)
+curl -s "$BASE/api/lots?phase=live"
+
+# 3. Dê um lance de R$ 2.500,00 (centavos). Troque TOKEN e LOT_ID.
+curl -s -b jar.txt -H "X-CSRF-Token: TOKEN" -H 'Idempotency-Key: meu-lance-0001' \
+  -H 'Content-Type: application/json' -d '{"amount":250000}' $BASE/api/lots/LOT_ID/bids
+
+# 4. Acompanhe ao vivo (SSE) e confira a integridade do histórico
+curl -N $BASE/api/lots/LOT_ID/events
+curl -s $BASE/api/lots/LOT_ID/audit
+```
+
+Repetir o passo 3 com a **mesma** `Idempotency-Key` devolve o mesmo resultado (`"replayed": true`) sem
+dar outro lance. Em `http://localhost` (Docker Compose) o cookie não é `Secure`, então o `curl` funciona igual.
+
 ## Como rodar
 
 ### Opção 1: Docker Compose (mais simples)
@@ -150,20 +183,22 @@ Para rodar o seed à mão: `npm run seed -w api`. Ele é idempotente: não dupli
 
 Todas são validadas no boot com `zod`. Configuração inválida impede a subida com mensagem clara.
 
-| Variável              | Padrão                           | Para quê                                                            |
-| --------------------- | -------------------------------- | ------------------------------------------------------------------- |
-| `DATABASE_URL`        | — (obrigatória em produção)      | String de conexão do PostgreSQL                                     |
-| `INTEGRITY_SECRET`    | — (obrigatória, ≥ 32 caracteres) | Chave HMAC que sela o histórico de lances. **Fica fora do banco.**  |
-| `NODE_ENV`            | `development`                    | `production` liga cookie `Secure` + prefixo `__Host-`               |
-| `PORT`                | `3000`                           | Porta HTTP (no Render vem de `$PORT`)                               |
-| `SEED_ON_BOOT`        | `false`                          | Cria os dados de demonstração se ainda não existirem                |
-| `DEMO_PASSWORD`       | `Demo-Leilao-2026!`              | Senha das 3 contas de demonstração                                  |
-| `DB_POOL_MAX`         | `10`                             | Conexões do pool (2 a 50)                                           |
-| `WEB_DIST_DIR`        | —                                | Pasta do build do front. Se definida, a API o serve na mesma origem |
-| `COOKIE_SECURE`       | `true` em produção               | `false` apenas para rodar a imagem em `http://localhost`            |
-| `LOG_LEVEL`           | `info`                           | Nível do log (`pino`)                                               |
-| `VITE_SHOW_DEMO_HINT` | `true`                           | **Compilação do front.** `false` esconde o quadro de contas demo    |
-| `VITE_DEMO_PASSWORD`  | —                                | **Compilação do front.** Igual a `DEMO_PASSWORD` se você a trocou   |
+| Variável                 | Padrão                           | Para quê                                                            |
+| ------------------------ | -------------------------------- | ------------------------------------------------------------------- |
+| `DATABASE_URL`           | — (obrigatória em produção)      | String de conexão do PostgreSQL                                     |
+| `INTEGRITY_SECRET`       | — (obrigatória, ≥ 32 caracteres) | Chave HMAC que sela o histórico de lances. **Fica fora do banco.**  |
+| `NODE_ENV`               | `development`                    | `production` liga cookie `Secure` + prefixo `__Host-`               |
+| `PORT`                   | `3000`                           | Porta HTTP (no Render vem de `$PORT`)                               |
+| `SEED_ON_BOOT`           | `false`                          | Cria os dados de demonstração se ainda não existirem                |
+| `DEMO_PASSWORD`          | `Demo-Leilao-2026!`              | Senha das 3 contas de demonstração                                  |
+| `DB_POOL_MAX`            | `10`                             | Conexões do pool (2 a 50)                                           |
+| `WEB_DIST_DIR`           | —                                | Pasta do build do front. Se definida, a API o serve na mesma origem |
+| `COOKIE_SECURE`          | `true` em produção               | `false` apenas para rodar a imagem em `http://localhost`            |
+| `ALLOW_CANCEL_WITH_BIDS` | `false`                          | `true` permite cancelar lote com lances (estorna o líder)           |
+| `TRUST_PROXY_HOPS`       | `1`                              | Proxies confiáveis na frente do app (define o IP real dos limites)  |
+| `LOG_LEVEL`              | `info`                           | Nível do log (`pino`)                                               |
+| `VITE_SHOW_DEMO_HINT`    | `true`                           | **Compilação do front.** `false` esconde o quadro de contas demo    |
+| `VITE_DEMO_PASSWORD`     | —                                | **Compilação do front.** Igual a `DEMO_PASSWORD` se você a trocou   |
 
 As duas variáveis `VITE_*` são lidas na **compilação** (no Docker, via `--build-arg`).
 
@@ -177,11 +212,11 @@ npm run build && npm run e2e          # ponta a ponta com navegador real contra 
 npm run mutation -w web               # teste de mutação do front
 ```
 
-Resultado atual: **400 testes unitários** e **563 de integração** na API, **267** no front,
-**16 verificações e2e** com navegador. Em vez de só medir cobertura, usei:
+Resultado atual: **401 testes unitários** e **575 de integração** na API, **275** no front,
+**18 verificações e2e** com navegador. Em vez de só medir cobertura, usei:
 
 - **Teste de mutação** (`npm run mutation -w web`): quebro o código de propósito (por exemplo, trocar
-  `>=` por `>` na regra de lance mínimo) e confirmo que algum teste falha. No front, 26 de 26 mutações
+  `>=` por `>` na regra de lance mínimo) e confirmo que algum teste falha. No front, 30 de 30 mutações
   foram detectadas.
 - **Concorrência real:** dezenas de lances simultâneos no mesmo lote contra PostgreSQL de verdade,
   conferindo que a soma das carteiras nunca muda (dinheiro não nasce nem some).
@@ -206,9 +241,23 @@ lance alterado, removido, inserido, reordenado ou selo editado. _Triggers_ no ba
 
 O comprovante de arrematação também é assinado com a chave, e conferido com o histórico do lote.
 
-**Limite honesto:** o hash inicial cobre lote, leiloeiro, lance inicial e incremento. Ele **não cobre**
-título, item, início e fim do lote. Quem tem a chave e acesso ao banco consegue reescrever tudo (a chave
-é o segredo; ela não é rotacionável sem perder a verificação dos lotes antigos).
+**Limites honestos desta proteção** (ela detecta adulteração do histórico, não é um cartório):
+
+- O hash inicial cobre lote, leiloeiro, lance inicial e incremento. O selo **não cobre** título, item,
+  `ends_at` nem `status` do lote. Quem editar essas colunas direto no banco (desligando antes o
+  _trigger_, o que exige superusuário) não é detectado pela auditoria. A **carteira** tem
+  outras travas: o extrato é só de inclusão (_trigger_) e o saldo tem restrições no banco.
+- **Reversão ao estado antigo:** quem tiver acesso ao banco pode restaurar uma versão antiga do selo
+  do lote e apagar os lances posteriores, e a cadeia restante continua válida. O extrato da carteira
+  denuncia o caso quando sobra valor reservado sem lance correspondente, mas não sempre. A mitigação
+  é o **selo final** que a tela de auditoria mostra (e permite copiar): quem anotou o valor de antes
+  percebe a volta.
+- **A verificação pública não é independente.** Os hashes são HMAC, então só o servidor, que tem a
+  chave, consegue recalculá-los. Uma cadeia SHA-256 aberta (verificável no navegador) com o selo HMAC
+  só na ponta seria o próximo passo.
+- **A chave não tem versão.** Trocar `INTEGRITY_SECRET` faz todos os lotes já gravados falharem na
+  verificação (lances e liquidação são recusados). Por isso o `render.yaml` gera a chave uma única vez.
+  Um `keyId` no selo permitiria rotacionar sem perder o histórico.
 
 ## Privacidade
 
@@ -244,6 +293,8 @@ Escolhi o plano gratuito de ambos. O Postgres gratuito do Render expira em 30 di
    Cole a `DATABASE_URL` do Neon quando o painel pedir. O `INTEGRITY_SECRET` é gerado pelo Render e
    mantido entre os deploys.
 4. Quando estiver no ar, confira `https://<seu-app>.onrender.com/ready` e entre com uma conta demo.
+5. Nos logs do Render, procure `proxy_probe`: o campo `ip` deve ser o do visitante, não o de um proxy
+   (se for sempre o mesmo, aumente `TRUST_PROXY_HOPS`).
 
 O health check do Render usa `/health` (não toca no banco, para não acordar o Neon à toa).
 
@@ -262,25 +313,58 @@ Listados para ninguém ser surpreendido:
   repetição de rede pode criar dois lotes iguais (sem prejuízo financeiro; o leiloeiro cancela um).
 - **Banco indisponível:** a API responde `503 TEMPORARILY_UNAVAILABLE` com `Retry-After`, e o front mostra
   um aviso amigável em vez de erro técnico.
-- **Cancelar lote com lances reembolsa o líder** (difere do enunciado, veja acima).
+- **Anti-sniping sem teto.** Cada lance nos últimos 2 minutos estende o prazo, e não há limite de
+  extensões: dois licitantes que se cobrem sem parar mantêm o lote aberto. É o comportamento esperado
+  de um leilão "de vela"; um teto (por exemplo, 10 extensões) seria uma mudança de uma linha.
+- **Histórico adulterado em lote vencido.** A liquidação se recusa a fechar um lote cuja cadeia não
+  confere (para não pagar com base em dados suspeitos). A sala mostra "Encerrando, confirmando o
+  resultado…" e, passado 1 minuto, troca o aviso por **"Resultado em verificação"** com o link da
+  auditoria e passa a consultar a cada 15 s em vez de 2,5 s. O saldo de ninguém muda enquanto isso.
+- **Fim de lote com muita gente na sala.** Todas as salas pedem o resultado ao mesmo tempo quando o
+  prazo acaba. Cada navegador espera um tempo aleatório (até 1,5 s) e, no servidor, pedidos do mesmo
+  lote viram **uma única liquidação** por processo, para não ocupar o pool de conexões. A segurança
+  contra duas liquidações continua sendo o `FOR UPDATE` e o estado do lote no banco.
+- **Item fora do catálogo local.** Se a API do museu estiver fora do ar e o item não estiver no cache
+  nem nos 60 itens locais, só **criar lote com esse item** falha (503). Vitrine, sala, auditoria e
+  comprovante nunca dependem da API externa (o lote guarda uma cópia do item).
+- **IP dos limites de requisição.** O app confia em 1 proxy (`TRUST_PROXY_HOPS=1`, o caso do Render). Se
+  houver mais de um salto, todos os visitantes pareceriam o mesmo IP e dividiriam os limites. Depois
+  do deploy, olhe nos logs a linha `proxy_probe` (campos `ip` e `forwardedFor`) e ajuste o número.
 - **Dinheiro é fictício.** Depósito não passa por pagamento real.
 - **E2E fora do CI** (depende do Edge local).
 - **Imagens do catálogo** vêm do museu. Se o servidor deles falhar, o card mostra um substituto.
 
 ## Uso de IA
 
-Usei IA generativa (assistente de código) como ferramenta ao longo do projeto, do jeito que um
-engenheiro usa uma calculadora: ela acelera a conta, mas **quem sabe qual conta fazer sou eu**.
+Usei IA generativa (assistente de código) ao longo do projeto, do jeito que um engenheiro usa uma
+calculadora: ela acelera a conta, mas **quem sabe qual conta fazer sou eu**. Não entreguei nada que eu
+não consiga explicar linha a linha.
 
-**O que eu decidi e conduzi:** a leitura do enunciado, a arquitetura hexagonal, o modelo de dinheiro em
-centavos, a regra de concorrência (trava por lote), o anti-sniping, o reembolso no cancelamento, a
-cadeia de hash do histórico, o que entra ou não no escopo, os limites de segurança e a estratégia de
-deploy. Revisei cada trecho gerado, pedi mudanças, rejeitei o que não servia e corrigi o que errou.
+**O que eu decidi e conduzi:** a leitura do enunciado, a arquitetura hexagonal, o dinheiro em centavos,
+a cadeia de hash do histórico, o escopo, os limites de segurança e a estratégia de deploy.
 
-**Onde a IA ajudou:** escrever código repetitivo mais rápido, sugerir casos de teste e montar o
-esqueleto de arquivos que eu já tinha desenhado.
+**Três decisões minhas, com o porquê (as que mais pesaram):**
 
-**Como garanti que o resultado é confiável:** não confio em "parece certo". Há testes unitários,
-de integração com banco real, de concorrência, de mutação, fuzz, resiliência e e2e com navegador. Eles
+1. **Ordem de travas contra _deadlock_.** Um lance mexe no lote e em duas carteiras (a de quem lidera
+   e a de quem foi superado). Decidi que a ordem é sempre **lote primeiro, depois carteiras por `id`
+   crescente**. Com a ordem fixa, duas transações cruzadas nunca esperam uma pela outra. O teste de
+   concorrência dispara dezenas de lances simultâneos e confere que o saldo reservado fecha ao centavo.
+2. **Semântica do anti-sniping.** O intervalo do lote é `[início, fim)`. Um lance dentro dos últimos
+   2 minutos move o fim para **o instante do lance + 2 minutos** (não "fim + 2 minutos"), e a decisão
+   usa o relógio do servidor, nunca o do navegador. Optei por não ter teto de extensões e deixei isso
+   dito nos limites conhecidos, porque é uma regra de negócio que o cliente deve poder mudar.
+3. **Bug que o fuzz pegou: `\u0000` no e-mail.** Um e-mail com o caractere nulo passava na validação e
+   o PostgreSQL recusava com erro 500. Corrigi na borda (validação recusa caracteres de controle,
+   resposta 400) e deixei um teste de regressão. Foi o fuzz, e não a minha revisão, que achou. Por
+   isso eu o mantenho na suíte.
+
+**Onde a IA ajudou:** escrever código repetitivo mais rápido, sugerir casos de teste e montar o esqueleto
+dos arquivos que eu já tinha desenhado. **Onde eu revisei e mudei de rumo:** numa revisão crítica do
+projeto, decidi que cancelar lote com lances (e estornar o líder) era arriscado para um leilão
+auditável. O padrão passou a ser cancelar **só sem lances** (409 `LOT_HAS_BIDS`), e o estorno ficou
+atrás da variável `ALLOW_CANCEL_WITH_BIDS`.
+
+**Como garanti que o resultado é confiável:** não confio em "parece certo". Há testes unitários, de
+integração com banco real, de concorrência, de mutação, fuzz, resiliência e e2e com navegador. Eles
 descobriram bugs reais (que corrigi) e provam que o código se sustenta sem depender da minha palavra,
 nem da do assistente.

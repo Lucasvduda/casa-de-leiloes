@@ -117,6 +117,8 @@ const MAX_QUARANTINED = 1_000;
 export class SettleLot {
   /** lotId -> instante (ms) em que volta a ser elegivel. Em memoria: reiniciar o processo zera. */
   private readonly quarantine = new Map<string, number>();
+  /** Liquidacoes em andamento neste processo, por lote (single-flight). */
+  private readonly inFlight = new Map<string, Promise<SettleOutcome>>();
 
   constructor(
     private readonly deps: {
@@ -129,8 +131,30 @@ export class SettleLot {
     } & SettleDeps,
   ) {}
 
-  async execute(rawLotId: string): Promise<SettleOutcome> {
-    const lotId = assertLotId(rawLotId);
+  /**
+   * Liquida um lote. Single-flight por lote NESTE processo: quando o prazo acaba, todo cliente com a
+   * sala aberta pede o lote ao mesmo tempo e cada pedido chamaria a liquidacao. Sem isto seriam N
+   * transacoes disputando o mesmo FOR UPDATE, ocupando o pool (e deixando outras rotas sem conexao).
+   * Quem chega com uma liquidacao do MESMO lote em andamento espera e recebe o mesmo resultado.
+   * A seguranca contra duas instancias continua sendo o FOR UPDATE e o status do lote no banco.
+   */
+  execute(rawLotId: string): Promise<SettleOutcome> {
+    let lotId: string;
+    try {
+      lotId = assertLotId(rawLotId);
+    } catch (error) {
+      return Promise.reject(error instanceof Error ? error : new Error(String(error)));
+    }
+    const running = this.inFlight.get(lotId);
+    if (running !== undefined) return running;
+    const started = this.run(lotId).finally(() => {
+      this.inFlight.delete(lotId);
+    });
+    this.inFlight.set(lotId, started);
+    return started;
+  }
+
+  private async run(lotId: string): Promise<SettleOutcome> {
     const outcome = await this.deps.uow.run(async (repos) => {
       const lot = await repos.lots.lockById(lotId);
       if (lot === null) throw new NotFoundError('LOT_NOT_FOUND', 'Lote nao encontrado.');

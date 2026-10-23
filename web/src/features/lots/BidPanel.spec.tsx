@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, waitFor } from '@testing-library/react';
+import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -279,6 +279,45 @@ describe('BidPanel', () => {
     );
     expect(screen.getByText('Você foi superado')).toBeInTheDocument();
     expect(screen.getByLabelText('Seu lance')).toHaveValue('130,00');
+  });
+
+  it('superado ha mais de 50 lances (lance fora da janela): o servidor garante o aviso e a posicao', () => {
+    renderPanel(
+      bidderLot({
+        currentAmount: 90_000,
+        minimumNextBid: 91_000,
+        bidCount: 80,
+        bids: [makeBid({ seq: 80, mine: false, bidder: 'Licitante A1' })], // nenhum lance meu na janela
+        viewerDetail: { ref: 'Licitante Z9', hasBid: true, position: 3 },
+      }),
+    );
+    expect(screen.getByText('Você foi superado')).toBeInTheDocument();
+    expect(screen.getByText(/Sua posição agora: 3º/)).toBeInTheDocument();
+  });
+
+  it('quem nunca deu lance nao ve "superado" nem posicao', () => {
+    renderPanel(
+      bidderLot({
+        currentAmount: 12_000,
+        bidCount: 2,
+        bids: [makeBid({ seq: 2, mine: false })],
+        viewerDetail: { ref: 'Licitante Z9', hasBid: false, position: null },
+      }),
+    );
+    expect(screen.queryByText('Você foi superado')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Sua posição/)).not.toBeInTheDocument();
+  });
+
+  it('leiloeiro dono: lote SEM lances mostra Cancelar; COM lances explica que nao da', () => {
+    session.user = SELLER;
+    const own = { isSeller: true, isLeading: false };
+    renderPanel(makeLot({ viewer: own, bidCount: 0 }));
+    expect(screen.getByRole('button', { name: 'Cancelar lote' })).toBeInTheDocument();
+    cleanup();
+
+    renderPanel(makeLot({ viewer: own, bidCount: 2, currentAmount: 12_000 }));
+    expect(screen.queryByRole('button', { name: 'Cancelar lote' })).not.toBeInTheDocument();
+    expect(screen.getByText(/já recebeu lances e não pode ser cancelado/)).toBeInTheDocument();
   });
 
   it('lote agendado e lote em fechamento nao mostram formulario', () => {

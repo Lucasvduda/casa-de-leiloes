@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { api } from '../../api/endpoints';
 import { isApiError } from '../../api/errors';
@@ -30,6 +30,11 @@ import type { StreamHandlers, StreamStatus } from './use-lot-stream';
 
 const SETTLE_POLL_MS = 2_500;
 const SETTLE_GRACE_MS = 300;
+/** Espalha as consultas de quem esta com a sala aberta quando o prazo acaba (todos pediriam no mesmo instante). */
+const SETTLE_JITTER_MS = 1_500;
+/** Passado este tempo do fim sem resultado, a sala deixa de insistir a cada 2,5 s e avisa. */
+const SETTLE_STUCK_AFTER_MS = 60_000;
+const SETTLE_SLOW_POLL_MS = 15_000;
 const MAX_TIMEOUT_MS = 2 ** 31 - 1;
 
 function ConnectionBadge({ status }: { status: StreamStatus }) {
@@ -130,6 +135,8 @@ export function LotRoomPage() {
   const { viewerKey } = useSession();
   const queryKey = useMemo(() => keys.lot(viewerKey, id), [viewerKey, id]);
   const now = useServerNow();
+  // Sorteado uma vez por visita: cada aba espera um pouco diferente depois do fim do lote.
+  const [jitterMs] = useState(() => Math.floor(Math.random() * SETTLE_JITTER_MS));
 
   const query = useQuery({
     queryKey,
@@ -143,7 +150,9 @@ export function LotRoomPage() {
     refetchInterval: (q) => {
       const lot = q.state.data;
       if (lot === undefined || lot.status !== 'open') return false;
-      return Date.parse(lot.endsAt) <= serverClock.now() ? SETTLE_POLL_MS : false;
+      const overdueMs = serverClock.now() - Date.parse(lot.endsAt);
+      if (overdueMs < 0) return false;
+      return overdueMs > SETTLE_STUCK_AFTER_MS ? SETTLE_SLOW_POLL_MS : SETTLE_POLL_MS + jitterMs;
     },
   });
   const lot = query.data;
@@ -155,11 +164,11 @@ export function LotRoomPage() {
   const refetch = query.refetch;
   useEffect(() => {
     if (endsAt === undefined || status !== 'open') return;
-    const wait = Date.parse(endsAt) - serverClock.now() + SETTLE_GRACE_MS;
+    const wait = Date.parse(endsAt) - serverClock.now() + SETTLE_GRACE_MS + jitterMs;
     if (wait <= 0) return;
     const timer = setTimeout(() => void refetch(), Math.min(wait, MAX_TIMEOUT_MS));
     return () => clearTimeout(timer);
-  }, [endsAt, status, refetch]);
+  }, [endsAt, status, refetch, jitterMs]);
 
   const handlers: StreamHandlers = {
     onSnapshot: (snapshot) => {
@@ -196,7 +205,9 @@ export function LotRoomPage() {
   });
 
   function onBidAccepted(accepted: BidAccepted) {
-    serverClock.sync(accepted.bid.placedAt);
+    // Resposta repetida (replay de idempotencia) traz o instante ANTIGO do lance: sincronizar com ele
+    // atrasaria o relogio da sala. So um lance novo diz a hora do servidor.
+    if (!accepted.replayed) serverClock.sync(accepted.bid.placedAt);
     queryClient.setQueryData<LotDetail>(queryKey, (old) =>
       old === undefined ? old : applyBid(old, bidAcceptedToEvent(old, accepted)),
     );
@@ -334,6 +345,19 @@ export function LotRoomPage() {
           </Card>
 
           <ResultBlock lot={lot} />
+          {lot.status === 'open' && now - Date.parse(lot.endsAt) > SETTLE_STUCK_AFTER_MS && (
+            <Alert tone="warning" title="Resultado em verificação">
+              <p>
+                O prazo acabou, mas o resultado ainda não foi confirmado. O histórico deste lote
+                está em verificação. Seu saldo não é alterado até a confirmação.
+              </p>
+              <p className="mt-2">
+                <Link to={`/auditoria/${lot.id}`} className="font-semibold underline">
+                  Ver a auditoria do histórico
+                </Link>
+              </p>
+            </Alert>
+          )}
           <BidPanel lot={lot} phase={phase} onAccepted={onBidAccepted} />
 
           <Card as="section">

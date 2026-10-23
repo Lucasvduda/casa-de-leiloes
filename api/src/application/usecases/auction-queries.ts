@@ -11,6 +11,7 @@ import { IntegrityError, NotFoundError } from '../errors.js';
 import type {
   Actor,
   AuctionReadModel,
+  BidderStanding,
   Clock,
   ItemSnapshot,
   LedgerView,
@@ -45,6 +46,11 @@ const listQuerySchema = z.object({
   sort: z.enum(['ending', 'newest', 'price_asc', 'price_desc']).optional(),
   page: z.coerce.number().int().min(1).max(10_000).default(1),
   pageSize: z.coerce.number().int().min(1).max(50).default(12),
+});
+
+/** Vitrine publica: `cancelled` nao existe (400); `all` = tudo menos cancelados. */
+const publicListQuerySchema = listQuerySchema.extend({
+  phase: z.enum(['live', 'scheduled', 'finished', 'all']).optional(),
 });
 
 const ledgerQuerySchema = z.object({
@@ -114,6 +120,10 @@ export interface LotDetailDto extends LotSummaryDto {
   readonly viewerDetail: {
     /** Como esta pessoa aparece nos lances deste lote (para marcar "voce" nos eventos em tempo real). */
     readonly ref: string;
+    /** Ja deu lance neste lote (calculado no banco, nao depende da janela dos 50 lances da sala). */
+    readonly hasBid: boolean;
+    /** Posicao entre os licitantes (1 = liderando). null se ainda nao deu lance. */
+    readonly position: number | null;
   } | null;
 }
 
@@ -147,12 +157,16 @@ export interface AuctionQueriesDeps {
 export class AuctionQueries {
   constructor(private readonly deps: AuctionQueriesDeps) {}
 
-  /** Vitrine publica. Se houver sessao, cada card informa se a pessoa esta liderando. */
+  /**
+   * Vitrine publica. Se houver sessao, cada card informa se a pessoa esta liderando.
+   * Lotes cancelados nao aparecem aqui (nem com phase=all): so o dono os ve, em /me/lots.
+   */
   listLots(viewer: Actor | null, rawQuery: unknown): Promise<Paged<LotSummaryDto>> {
-    const q = parseWith(listQuerySchema, rawQuery);
+    const q = parseWith(publicListQuerySchema, rawQuery);
     const phase = q.phase ?? 'live';
     return this.list(viewer, {
       phase,
+      excludeCancelled: true,
       search: q.q,
       sort: q.sort ?? (phase === 'live' || phase === 'scheduled' ? 'ending' : 'newest'),
       page: q.page,
@@ -227,7 +241,7 @@ export class AuctionQueries {
   /** Sala do lote. Lote vencido e liquidado na hora (nao depende do agendador estar de pe). */
   async getLot(viewer: Actor | null, rawLotId: unknown): Promise<LotDetailDto> {
     const lotId = assertLotId(rawLotId);
-    let snapshot = await this.loadRoom(lotId);
+    let snapshot = await this.loadRoom(lotId, viewer);
 
     const now = this.deps.clock.now();
     if (snapshot.lot.status === 'open' && now.getTime() >= snapshot.lot.endsAt.getTime()) {
@@ -238,22 +252,19 @@ export class AuctionQueries {
         // publica mostra o problema). Qualquer outro erro e real e sobe.
         if (!(error instanceof IntegrityError)) throw error;
       }
-      snapshot = await this.loadRoom(lotId);
+      snapshot = await this.loadRoom(lotId, viewer);
     }
 
-    const { lot, sellerName, bids, receipt } = snapshot;
+    const { lot, sellerName, bids, receipt, standing } = snapshot;
     const { mac } = this.deps;
     const serverNow = this.deps.clock.now();
-    const recent = [...bids]
-      .sort((a, b) => b.seq - a.seq)
-      .slice(0, RECENT_BIDS_IN_ROOM)
-      .map((bid): PublicBidDto => ({
-        seq: bid.seq,
-        bidder: publicBidderRef(mac, bid.bidderId, lot.id),
-        mine: viewer !== null && bid.bidderId === viewer.id,
-        amount: bid.amount,
-        placedAt: bid.placedAt,
-      }));
+    const recent = bids.map((bid): PublicBidDto => ({
+      seq: bid.seq,
+      bidder: publicBidderRef(mac, bid.bidderId, lot.id),
+      mine: viewer !== null && bid.bidderId === viewer.id,
+      amount: bid.amount,
+      placedAt: bid.placedAt,
+    }));
 
     return {
       ...this.toSummary(lot, sellerName, receipt?.code ?? null, viewer, serverNow),
@@ -261,7 +272,8 @@ export class AuctionQueries {
       bids: recent,
       serverNow,
       result: this.resultOf(lot, receipt),
-      viewerDetail: viewer === null ? null : { ref: publicBidderRef(mac, viewer.id, lot.id) },
+      viewerDetail:
+        viewer === null ? null : { ref: publicBidderRef(mac, viewer.id, lot.id), ...standing },
     };
   }
 
@@ -310,19 +322,28 @@ export class AuctionQueries {
     };
   }
 
-  private async loadRoom(lotId: string): Promise<{
+  /** Le so o necessario para a sala: os ultimos lances (mais novo primeiro) e a situacao de quem olha. */
+  private async loadRoom(
+    lotId: string,
+    viewer: Actor | null,
+  ): Promise<{
     lot: LotRecord;
     sellerName: string;
     bids: StoredBid[];
     receipt: StoredReceipt | null;
+    standing: BidderStanding;
   }> {
     const loaded = await this.deps.uow.readSnapshot(async (repos) => {
       const lot = await repos.lots.findById(lotId);
       if (lot === null) return null;
       const seller = await repos.users.findById(lot.sellerId);
-      const bids = await repos.bids.listByLot(lotId);
+      const bids = await repos.bids.listRecent(lotId, RECENT_BIDS_IN_ROOM);
       const receipt = await repos.receipts.findByLot(lotId);
-      return { lot, sellerName: seller?.displayName ?? 'Leiloeiro', bids, receipt };
+      const standing: BidderStanding =
+        viewer === null || viewer.id === lot.sellerId
+          ? { hasBid: false, position: null }
+          : await repos.bids.standingOf(lotId, viewer.id);
+      return { lot, sellerName: seller?.displayName ?? 'Leiloeiro', bids, receipt, standing };
     });
     if (loaded === null) throw new NotFoundError('LOT_NOT_FOUND', 'Lote nao encontrado.');
     return loaded;

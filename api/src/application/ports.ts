@@ -89,10 +89,22 @@ export interface LotRepository {
   markCancelled(lotId: string, at: Date): Promise<void>;
 }
 
+export interface BidderStanding {
+  readonly hasBid: boolean;
+  readonly position: number | null;
+}
+
 export interface BidRepository {
   last(lotId: string): Promise<StoredBid | null>;
   insert(bid: StoredBid): Promise<void>;
   listByLot(lotId: string): Promise<StoredBid[]>;
+  /** Os ultimos limit lances (mais novo primeiro). Evita carregar o historico inteiro so para a sala. */
+  listRecent(lotId: string, limit: number): Promise<StoredBid[]>;
+  /**
+   * Situacao de uma pessoa no lote, calculada no banco: se ja deu lance e em que posicao esta
+   * (1 = lider; ordem pelo MAIOR lance de cada licitante, e o valor sempre cresce com o seq).
+   */
+  standingOf(lotId: string, bidderId: string): Promise<BidderStanding>;
   findByIdempotencyKey(bidderId: string, key: string): Promise<StoredBid | null>;
 }
 
@@ -218,6 +230,8 @@ export interface LotListQuery {
   readonly page: number;
   readonly pageSize: number;
   readonly now: Date;
+  /** Vitrine publica: lotes cancelados nunca aparecem (so o dono os ve, em /me/lots). */
+  readonly excludeCancelled?: boolean;
   /** Lotes deste leiloeiro. */
   readonly sellerId?: string;
   /** Lotes em que esta pessoa deu pelo menos um lance. */
@@ -246,7 +260,7 @@ export interface LedgerView {
 export interface AuctionReadModel {
   listLots(query: LotListQuery): Promise<{ rows: LotListRow[]; total: number }>;
   walletSummary(userId: string): Promise<{ total: Cents; committed: Cents }>;
-  /** Extrato do mais novo para o mais antigo. eforeId pagina por cursor (estavel mesmo com novas linhas). */
+  /** Extrato do mais novo para o mais antigo. beforeId pagina por cursor (estavel mesmo com novas linhas). */
   ledger(userId: string, limit: number, beforeId: number | null): Promise<LedgerView[]>;
   sellerTotals(sellerId: string): Promise<{ received: Cents; soldCount: number }>;
 }

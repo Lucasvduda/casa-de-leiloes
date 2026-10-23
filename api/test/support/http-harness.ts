@@ -61,6 +61,8 @@ export interface HttpHarnessOptions {
   readonly cookieSecure?: boolean;
   readonly clock?: FakeClock;
   readonly hubLimits?: Partial<HubLimits>;
+  /** Liga o estorno ao cancelar lote com lances. Padrao do harness: ligado (producao: desligado). */
+  readonly allowCancelWithBids?: boolean;
 }
 
 export function createHttpHarness(db: TestDb, options: HttpHarnessOptions = {}) {
@@ -101,7 +103,10 @@ export function createHttpHarness(db: TestDb, options: HttpHarnessOptions = {}) 
       queries,
       placeBid: new PlaceBid(base),
       createLot: new CreateLot(base),
-      cancelLot: new CancelLot(base),
+      cancelLot: new CancelLot({
+        ...base,
+        allowCancelWithBids: options.allowCancelWithBids ?? true,
+      }),
       deposit: new Deposit({ uow: db.uow }),
       audit: new AuditLot({ uow: db.uow, mac }),
       catalog,

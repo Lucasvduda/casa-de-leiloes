@@ -1,4 +1,4 @@
-import type { BidRepository, StoredBid } from '../../../application/ports.js';
+import type { BidRepository, BidderStanding, StoredBid } from '../../../application/ports.js';
 import { cents } from '../../../domain/money.js';
 import type { Queryable } from './pool.js';
 
@@ -62,6 +62,29 @@ export class PgBidRepository implements BidRepository {
       [lotId],
     );
     return rows.map(mapBid);
+  }
+
+  async listRecent(lotId: string, limit: number): Promise<StoredBid[]> {
+    const { rows } = await this.db.query<BidRow>(
+      `SELECT ${COLUMNS} FROM bids WHERE lot_id = $1 ORDER BY seq DESC LIMIT $2`,
+      [lotId, limit],
+    );
+    return rows.map(mapBid);
+  }
+
+  async standingOf(lotId: string, bidderId: string): Promise<BidderStanding> {
+    const { rows } = await this.db.query<{ mine: string | null; ahead: string }>(
+      `WITH best AS (
+         SELECT bidder_id, max(amount_cents) AS top FROM bids WHERE lot_id = $1 GROUP BY bidder_id
+       )
+       SELECT (SELECT top FROM best WHERE bidder_id = $2) AS mine,
+              (SELECT count(*) FROM best
+                WHERE top > (SELECT top FROM best WHERE bidder_id = $2)) AS ahead`,
+      [lotId, bidderId],
+    );
+    const row = rows[0];
+    if (row === undefined || row.mine === null) return { hasBid: false, position: null };
+    return { hasBid: true, position: Number(row.ahead) + 1 };
   }
 
   async findByIdempotencyKey(bidderId: string, key: string): Promise<StoredBid | null> {

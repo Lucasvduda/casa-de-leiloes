@@ -17,6 +17,8 @@ export interface AppDeps {
   readonly api?: ApiDeps;
   /** Pasta do build do front-end. Se informada, a API serve o app na mesma origem. */
   readonly webDistDir?: string;
+  /** Quantos proxies confiaveis ha na frente do app (padrao 1). Define o IP real usado nos limites. */
+  readonly trustProxyHops?: number;
 }
 
 /** Unico host externo permitido: as imagens CC0 do museu (o mapeador ja aceita so esse host). */
@@ -29,15 +31,27 @@ export function createApp(deps: AppDeps): Express {
   const { logger, readinessProbe } = deps;
   const app = express();
 
-  // Atras do proxy do Render: necessario para IP real (rate limit) e cookies Secure.
-  app.set('trust proxy', 1);
+  // Atras do proxy da hospedagem: necessario para o IP real (rate limit) e cookies Secure.
+  // Se houver mais de um salto (ex.: CDN + balanceador), req.ip viraria o IP do proxy e todos os
+  // visitantes dividiriam os mesmos limites: por isso o numero e configuravel (TRUST_PROXY_HOPS)
+  // e as primeiras requisicoes registram ip e x-forwarded-for para conferir depois do deploy.
+  app.set('trust proxy', deps.trustProxyHops ?? 1);
   app.disable('x-powered-by');
 
   app.use(requestId);
+  let proxyProbesLeft = 5;
   app.use((req, res, next) => {
     const startedAt = process.hrtime.bigint();
+    const probe = proxyProbesLeft > 0 && req.originalUrl !== '/health';
+    if (probe) proxyProbesLeft -= 1;
     res.on('finish', () => {
       const ms = Number(process.hrtime.bigint() - startedAt) / 1e6;
+      if (probe) {
+        logger.info(
+          { ip: req.ip, forwardedFor: req.headers['x-forwarded-for'] ?? null },
+          'proxy_probe',
+        );
+      }
       logger.info(
         {
           requestId: req.id,
