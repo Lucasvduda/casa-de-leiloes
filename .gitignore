@@ -1,0 +1,13 @@
+node_modules/
+dist/
+coverage/
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store
+.pgdata/
+.embedded-pg/
+
+# Material do enunciado (PDF da empresa) nao vai para o repositorio publico
+*.pdf
