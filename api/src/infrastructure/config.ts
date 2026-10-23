@@ -15,6 +15,17 @@ const schema = z.object({
    */
   INTEGRITY_SECRET: z.string().min(32, 'INTEGRITY_SECRET precisa ter pelo menos 32 caracteres'),
   SEED_ON_BOOT: booleanFromEnv.default(false),
+  /** Senha das contas de demonstracao (publicada no README de proposito). Segue a politica de senha. */
+  DEMO_PASSWORD: z.string().min(8).max(128).default('Demo-Leilao-2026!'),
+  /** Conexoes do pool. Planos gratuitos de banco limitam conexoes: o padrao e conservador. */
+  DB_POOL_MAX: z.coerce.number().int().min(2).max(50).default(10),
+  /**
+   * Cookie `Secure` (+ prefixo `__Host-`). Padrao: ligado em producao. Desligue so para rodar a
+   * imagem de producao em http://localhost (docker compose), onde nao ha HTTPS.
+   */
+  COOKIE_SECURE: booleanFromEnv.optional(),
+  /** Pasta do build do front-end. Se definida, a API serve os arquivos estaticos (mesma origem). */
+  WEB_DIST_DIR: z.string().min(1).optional(),
 });
 
 export type AppConfig = z.infer<typeof schema>;

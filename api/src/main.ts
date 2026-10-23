@@ -1,41 +1,47 @@
-import { createApp } from './adapters/inbound/http/app.js';
 import { loadConfig } from './infrastructure/config.js';
+import { buildContainer } from './infrastructure/container.js';
 import { createLogger } from './infrastructure/logger.js';
+import { startServer } from './infrastructure/server.js';
 
-const SHUTDOWN_TIMEOUT_MS = 10_000;
+/** Depois disto o processo sai de qualquer jeito (o orquestrador mandaria SIGKILL logo em seguida). */
+const SHUTDOWN_DEADLINE_MS = 10_000;
 
 async function main(): Promise<void> {
   const config = loadConfig();
   const logger = createLogger(config);
+  const container = await buildContainer(config, logger);
+  const running = await startServer(container, logger);
 
-  // O banco entra na Fase 3; por ora readiness reflete apenas que o processo subiu.
-  const app = createApp({ logger, readinessProbe: async () => true });
-
-  const server = app.listen(config.PORT, '0.0.0.0', () => {
-    logger.info({ port: config.PORT, env: config.NODE_ENV }, 'server_listening');
-  });
-
-  let shuttingDown = false;
-  const shutdown = (signal: string): void => {
-    if (shuttingDown) return;
-    shuttingDown = true;
-    logger.info({ signal }, 'shutdown_started');
+  let exiting = false;
+  const stop = (reason: string, exitCode: number): void => {
+    if (exiting) return;
+    exiting = true;
+    logger.info({ reason }, 'process_stopping');
     const force = setTimeout(() => {
       logger.error('shutdown_forced');
       process.exit(1);
-    }, SHUTDOWN_TIMEOUT_MS);
+    }, SHUTDOWN_DEADLINE_MS);
     force.unref();
-    server.close((err) => {
-      if (err) {
+    running.shutdown().then(
+      () => process.exit(exitCode),
+      (err: unknown) => {
         logger.error({ err }, 'shutdown_error');
         process.exit(1);
-      }
-      logger.info('shutdown_complete');
-      process.exit(0);
-    });
+      },
+    );
   };
-  process.on('SIGTERM', () => shutdown('SIGTERM'));
-  process.on('SIGINT', () => shutdown('SIGINT'));
+
+  process.on('SIGTERM', () => stop('SIGTERM', 0));
+  process.on('SIGINT', () => stop('SIGINT', 0));
+  // Estado desconhecido: o seguro e registrar e reiniciar limpo (o orquestrador sobe outro processo).
+  process.on('unhandledRejection', (err) => {
+    logger.fatal({ err }, 'unhandled_rejection');
+    stop('unhandledRejection', 1);
+  });
+  process.on('uncaughtException', (err) => {
+    logger.fatal({ err }, 'uncaught_exception');
+    stop('uncaughtException', 1);
+  });
 }
 
 main().catch((err: unknown) => {

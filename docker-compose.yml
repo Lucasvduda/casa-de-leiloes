@@ -5,6 +5,8 @@ services:
       POSTGRES_USER: leilao
       POSTGRES_PASSWORD: leilao
       POSTGRES_DB: leilao
+      # UTF8 explicito: o app recusa subir em banco com outra codificacao.
+      POSTGRES_INITDB_ARGS: '--encoding=UTF8'
     ports:
       - '5432:5432'
     volumes:
@@ -27,6 +29,8 @@ services:
       # Somente para demonstracao local. Em producao use um segredo proprio (>= 32 caracteres).
       INTEGRITY_SECRET: ${INTEGRITY_SECRET:-troque-este-segredo-local-0123456789abcdef}
       SEED_ON_BOOT: 'true'
+      # Sem HTTPS em localhost: cookie Secure nao seria aceito por todos os navegadores.
+      COOKIE_SECURE: 'false'
     ports:
       - '3000:3000'
 

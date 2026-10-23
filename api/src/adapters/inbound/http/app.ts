@@ -6,6 +6,7 @@ import { createApiRouter } from './api-router.js';
 import type { ApiDeps } from './api-router.js';
 import { createErrorHandler, notFoundHandler } from './middlewares/error-handler.js';
 import { requestId } from './middlewares/request-id.js';
+import { serveWebApp } from './middlewares/web-app.js';
 
 export interface AppDeps {
   readonly logger: Logger;
@@ -13,7 +14,12 @@ export interface AppDeps {
   readonly readinessProbe: () => Promise<boolean>;
   /** Rotas de negocio sob /api. Opcional para testar so a fundacao (health, erros, cabecalhos). */
   readonly api?: ApiDeps;
+  /** Pasta do build do front-end. Se informada, a API serve o app na mesma origem. */
+  readonly webDistDir?: string;
 }
+
+/** Unico host externo permitido: as imagens CC0 do museu (o mapeador ja aceita so esse host). */
+const IMAGE_HOSTS = ['https://openaccess-cdn.clevelandart.org'];
 
 /** Limite de corpo: nenhuma rota do leilao precisa de mais que isso. */
 const JSON_BODY_LIMIT = '16kb';
@@ -38,7 +44,19 @@ export function createApp(deps: AppDeps): Express {
     });
     next();
   });
-  app.use(helmet());
+  app.use(
+    helmet({
+      contentSecurityPolicy: {
+        useDefaults: true,
+        directives: {
+          'img-src': ["'self'", 'data:', ...IMAGE_HOSTS],
+          'connect-src': ["'self'"],
+          // O TLS termina no proxy da hospedagem; forcar upgrade quebraria http://localhost.
+          'upgrade-insecure-requests': null,
+        },
+      },
+    }),
+  );
   app.use(express.json({ limit: JSON_BODY_LIMIT }));
 
   if (deps.api !== undefined) {
@@ -55,6 +73,10 @@ export function createApp(deps: AppDeps): Express {
     const ready = await readinessProbe().catch(() => false);
     res.status(ready ? 200 : 503).json({ status: ready ? 'ready' : 'unavailable' });
   });
+
+  if (deps.webDistDir !== undefined) {
+    app.use(serveWebApp(deps.webDistDir));
+  }
 
   app.use(notFoundHandler);
   app.use(createErrorHandler(logger));

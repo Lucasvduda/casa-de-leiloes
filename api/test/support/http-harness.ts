@@ -108,7 +108,7 @@ export function createHttpHarness(db: TestDb, options: HttpHarnessOptions = {}) 
       events: hub,
     },
   });
-  return { app, auth, clock, hasher, cookie, catalog, events, settle, mac, hub };
+  return { app, auth, clock, hasher, cookie, catalog, events, settle, mac, hub, queries, base };
 }
 
 export type HttpHarness = ReturnType<typeof createHttpHarness>;

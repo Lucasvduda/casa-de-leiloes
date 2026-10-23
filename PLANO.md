@@ -9,9 +9,9 @@ Enunciado: `ENUNCIADO.md`. Regras do projeto: `TaskVagas/.cursor/rules/task-vaga
 |---|---|---|
 | Back-end | Node.js + TypeScript (strict) + **Express 5**, hexagonal manual | Vaga e CV #138 citam Node Express; domínio sem framework |
 | Front-end | React + TypeScript + Vite, React Router, TanStack Query, Tailwind | Hooks e componentização (vaga); dark mode via classe |
-| Banco | **PostgreSQL** (Drizzle ORM + migrations SQL) | Transação e `SELECT ... FOR UPDATE` para lance concorrente |
-| Tempo real | **SSE** (`EventSource`) com `Last-Event-ID` | Lance é POST REST; só o servidor empurra; atravessa proxy; reconecta sozinho |
-| API pública | **Art Institute of Chicago** (sem chave, imagens IIIF) | Estável, dados ricos (artista, data, técnica), sem limite agressivo |
+| Banco | **PostgreSQL** (`pg` + migrations SQL versionadas com checksum) | Transação e `SELECT ... FOR UPDATE` para lance concorrente; SQL explícito nas consultas críticas |
+| Tempo real | **SSE** (`EventSource`): ao (re)conectar o servidor reenvia o estado atual (snapshot), então não precisa de `Last-Event-ID` | Lance é POST REST; só o servidor empurra; atravessa proxy; reconecta sozinho |
+| API pública | **Cleveland Museum of Art Open Access** (CC0, sem chave), com catálogo offline embutido de 60 obras como último recurso | Licença livre, dados ricos (artista, data, técnica), sem chave; cache, retry e circuit breaker; nunca derruba o leilão |
 | Deploy | **Render free (Docker) + Neon free (Postgres)** | Custo zero; Neon não expira em 30 dias |
 | Anti-sniping | Lance nos últimos 2 min: novo fim = **instante do lance + 2 min** | Leilão clássico (soft close); documentar no README |
 | Cancelamento | Permitido também com lances, **estornando o líder** automaticamente | Cobre o opcional; sem lance continua simples |
@@ -28,8 +28,8 @@ api/src/
     usecases/     # PlaceBid, CreateLot, CancelLot, SettleLot, Deposit, AuditLot, GetReceipt, SearchCatalog...
   adapters/
     inbound/      # http (routes, middlewares, DTOs zod), sse, scheduler
-    outbound/     # postgres (drizzle), artic-catalog (timeout, retry, circuit breaker, cache stale-if-error), crypto, in-memory-events
-  infrastructure/ # config (zod env), logger (pino + requestId), container/wiring, health
+    outbound/     # postgres (pg), catalog/cleveland (timeout, retry, circuit breaker, cache stale-if-error, offline), crypto, in-memory-events
+  infrastructure/ # config (zod env), logger (pino + requestId), container (composição), server (boot e desligamento), scheduler
 web/src/          # features/{auth,lots,live-room,wallet,wins,audit,seller}, components, hooks, theme
 ```
 
@@ -79,7 +79,7 @@ Postgres real nos testes: `embedded-postgres` localmente (sem Docker, que não e
 
 ## Dados de teste (seed idempotente)
 
-1 leiloeiro, 2 licitantes com saldo, 1 lote **ao vivo com lances** (cadeia de hash válida), 1 agendado, 1 encerrado com comprovante. Seed no boot (`SEED_ON_BOOT`) e `npm run seed`. Credenciais no README.
+1 leiloeiro, 2 licitantes (R$ 60.000 cada) e **6 lotes em todos os estados**: ao vivo com lances (Ana lidera), ao vivo que fecha em poucas horas (Ana superada), ao vivo sem lances, agendado, encerrado vendido (com comprovante) e encerrado sem vencedor. Gravado pelos **mesmos casos de uso** do sistema (relógio deslocado para o passado), então cadeias de hash e comprovante são autênticos. Idempotente e retomável (chaves de idempotência, advisory lock entre instâncias). Seed no boot (`SEED_ON_BOOT`) e `npm run seed -w api`. Contas: `leiloeiro@demo.leilao`, `ana@demo.leilao`, `bruno@demo.leilao`; senha em `DEMO_PASSWORD` (padrão no `.env.example`, publicada no README de propósito).
 
 ## Entregáveis
 
@@ -97,4 +97,4 @@ Postgres real nos testes: `embedded-postgres` localmente (sem Docker, que não e
 
 ## Comportamentos que vão no README (o enunciado exige citar)
 
-Render free dorme após 15 min (primeiro acesso demora ~50 s; a liquidação preguiçosa cobre o intervalo); anti-sniping usa instante do lance + 2 min; lote cancelado com lances estorna o líder; depósito é simulado com teto por operação; imagens vêm do Art Institute of Chicago e podem falhar (placeholder).
+Render free dorme após 15 min (primeiro acesso demora ~50 s; a liquidação preguiçosa cobre o intervalo); anti-sniping usa instante do lance + 2 min; lote cancelado com lances estorna o líder; depósito é simulado com teto por operação; imagens vêm do Cleveland Museum of Art e podem falhar (placeholder); SSE e quarentena de liquidação ficam na memória do processo (uma instância).
