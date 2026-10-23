@@ -47,3 +47,10 @@ export class IntegrityError extends DomainError {
     super('INTEGRITY_VIOLATION', message);
   }
 }
+
+/** A API externa de itens esta fora e nao ha copia local util. Nada alem da busca do leiloeiro para. */
+export class CatalogUnavailableError extends DomainError {
+  constructor() {
+    super('CATALOG_UNAVAILABLE', 'O catalogo de itens esta indisponivel no momento.');
+  }
+}

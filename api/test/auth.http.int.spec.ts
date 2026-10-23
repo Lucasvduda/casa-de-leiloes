@@ -96,14 +96,12 @@ describe('cadastro', () => {
 
   it('em producao o cookie e Secure e usa o prefixo __Host-', async () => {
     const prod = createHttpHarness(db, { cookieName: '__Host-leilao_sid', cookieSecure: true });
-    const res = await request(prod.app)
-      .post('/api/auth/register')
-      .send({
-        email: uniqueEmail(),
-        displayName: 'Prod',
-        password: STRONG_PASSWORD,
-        role: 'bidder',
-      });
+    const res = await request(prod.app).post('/api/auth/register').send({
+      email: uniqueEmail(),
+      displayName: 'Prod',
+      password: STRONG_PASSWORD,
+      role: 'bidder',
+    });
     const line = setCookieLine(res, '__Host-leilao_sid');
     expect(line).toMatch(/Secure/i);
     expect(line).toMatch(/HttpOnly/i);

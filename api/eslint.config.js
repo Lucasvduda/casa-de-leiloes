@@ -15,6 +15,12 @@ export default tseslint.config(
     },
   },
   {
+    // Scripts de linha de comando (fora do servidor): saida no terminal e esperada.
+    files: ['scripts/**/*.mjs'],
+    languageOptions: { globals: { console: 'readonly', process: 'readonly' } },
+    rules: { 'no-console': 'off' },
+  },
+  {
     // A camada de dominio nao conhece framework nem infraestrutura.
     files: ['src/domain/**/*.ts'],
     rules: {

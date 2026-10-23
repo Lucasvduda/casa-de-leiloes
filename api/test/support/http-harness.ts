@@ -5,10 +5,19 @@ import type { Express } from 'express';
 import { createApp } from '../../src/adapters/inbound/http/app.js';
 import type { RateLimitRules } from '../../src/adapters/inbound/http/middlewares/rate-limits.js';
 import { Argon2Hasher } from '../../src/adapters/outbound/argon2-hasher.js';
-import { cryptoIds } from '../../src/adapters/outbound/system.js';
+import { PgAuctionReadModel } from '../../src/adapters/outbound/postgres/pg-auction-read-model.js';
+import { InMemoryEventBus, createMac, cryptoIds } from '../../src/adapters/outbound/system.js';
 import type { PasswordHasher } from '../../src/application/ports.js';
+import { AuctionQueries } from '../../src/application/usecases/auction-queries.js';
+import { AuditLot } from '../../src/application/usecases/audit-lot.js';
 import { AuthService, SESSION_TTL_MS } from '../../src/application/usecases/auth.js';
-import { FakeClock } from './harness.js';
+import { CancelLot } from '../../src/application/usecases/cancel-lot.js';
+import { CreateLot } from '../../src/application/usecases/create-lot.js';
+import { Deposit } from '../../src/application/usecases/deposit.js';
+import { PlaceBid } from '../../src/application/usecases/place-bid.js';
+import { SettleLot } from '../../src/application/usecases/settle-lot.js';
+import { FakeCatalog } from './fake-catalog.js';
+import { FakeClock, SECRET } from './harness.js';
 import type { TestDb } from './test-db.js';
 
 const HUGE = { windowMs: 60_000, limit: 1_000_000 };
@@ -59,12 +68,35 @@ export function createHttpHarness(db: TestDb, options: HttpHarnessOptions = {}) 
     secure: options.cookieSecure ?? false,
     maxAgeMs: SESSION_TTL_MS,
   };
+  const mac = createMac(SECRET);
+  const events = new InMemoryEventBus();
+  const base = { uow: db.uow, clock, mac, ids: cryptoIds, events };
+  const settle = new SettleLot(base);
+  const catalog = new FakeCatalog();
+  const queries = new AuctionQueries({
+    uow: db.uow,
+    readModel: new PgAuctionReadModel(db.pool),
+    clock,
+    mac,
+    settle,
+  });
   const app: Express = createApp({
     logger: pino({ level: 'silent' }),
     readinessProbe: async () => true,
-    api: { auth, cookie, rateLimits: options.rateLimits ?? LOOSE_RATE_LIMITS },
+    api: {
+      auth,
+      cookie,
+      rateLimits: options.rateLimits ?? LOOSE_RATE_LIMITS,
+      queries,
+      placeBid: new PlaceBid(base),
+      createLot: new CreateLot(base),
+      cancelLot: new CancelLot(base),
+      deposit: new Deposit({ uow: db.uow }),
+      audit: new AuditLot({ uow: db.uow, mac }),
+      catalog,
+    },
   });
-  return { app, auth, clock, hasher, cookie };
+  return { app, auth, clock, hasher, cookie, catalog, events, settle, mac };
 }
 
 export type HttpHarness = ReturnType<typeof createHttpHarness>;

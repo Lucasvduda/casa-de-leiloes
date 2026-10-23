@@ -1,4 +1,11 @@
-import { mkdtempSync, writeFileSync, copyFileSync, readdirSync, rmSync } from 'node:fs';
+import {
+  mkdtempSync,
+  writeFileSync,
+  copyFileSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -62,17 +69,30 @@ describe('migracoes', () => {
     }
   });
 
+  it('o mesmo arquivo com quebras de linha CRLF (Windows) NAO conta como editado', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'mig-'));
+    try {
+      for (const f of readdirSync(DEFAULT_MIGRATIONS_DIR).filter((x) => x.endsWith('.sql'))) {
+        const lf = readFileSync(join(DEFAULT_MIGRATIONS_DIR, f), 'utf8').replace(/\r\n/g, '\n');
+        writeFileSync(join(dir, f), lf.replace(/\n/g, '\r\n'));
+      }
+      const r = await runMigrations(db.pool, dir);
+      expect(r.applied).toEqual([]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
   it('migracao com erro faz rollback completo e nao registra', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'mig-'));
     try {
       for (const f of readdirSync(DEFAULT_MIGRATIONS_DIR).filter((x) => x.endsWith('.sql'))) {
         copyFileSync(join(DEFAULT_MIGRATIONS_DIR, f), join(dir, f));
       }
-      writeFileSync(join(dir, '0002_quebrada.sql'), 'CREATE TABLE temp_ok (id int); SELECT 1/0;');
-      await expect(runMigrations(db.pool, dir)).rejects.toThrow(/0002_quebrada/);
+      writeFileSync(join(dir, '0099_quebrada.sql'), 'CREATE TABLE temp_ok (id int); SELECT 1/0;');
+      await expect(runMigrations(db.pool, dir)).rejects.toThrow(/0099_quebrada/);
       expect(await failure('SELECT * FROM temp_ok')).toMatch(/does not exist|nao existe/i);
       const { rows } = await db.pool.query(
-        `SELECT 1 FROM schema_migrations WHERE name = '0002_quebrada.sql'`,
+        `SELECT 1 FROM schema_migrations WHERE name = '0099_quebrada.sql'`,
       );
       expect(rows).toHaveLength(0);
     } finally {

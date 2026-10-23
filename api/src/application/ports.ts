@@ -202,3 +202,70 @@ export type AuctionEvent =
 export interface EventPublisher {
   publish(event: AuctionEvent): void;
 }
+
+// ---------------------------------------------------------------------------------------------
+// Leitura (vitrine, paineis, extrato). Consultas que cruzam tabelas ficam fora dos repositorios
+// de escrita, que existem para proteger invariantes dentro da transacao.
+// ---------------------------------------------------------------------------------------------
+
+export type LotPhaseFilter = 'live' | 'scheduled' | 'finished' | 'cancelled' | 'all';
+export type LotSort = 'ending' | 'newest' | 'price_asc' | 'price_desc';
+
+export interface LotListQuery {
+  readonly phase: LotPhaseFilter;
+  readonly search: string | null;
+  readonly sort: LotSort;
+  readonly page: number;
+  readonly pageSize: number;
+  readonly now: Date;
+  /** Lotes deste leiloeiro. */
+  readonly sellerId?: string;
+  /** Lotes em que esta pessoa deu pelo menos um lance. */
+  readonly bidderId?: string;
+  /** Lotes arrematados por esta pessoa (comprovante emitido). */
+  readonly wonBy?: string;
+}
+
+export interface LotListRow {
+  readonly lot: LotRecord;
+  readonly sellerName: string;
+  readonly receiptCode: string | null;
+}
+
+export interface LedgerView {
+  readonly id: number;
+  readonly kind: LedgerKind;
+  readonly amount: Cents;
+  readonly totalAfter: Cents;
+  readonly committedAfter: Cents;
+  readonly lotId: string | null;
+  readonly lotTitle: string | null;
+  readonly createdAt: Date;
+}
+
+export interface AuctionReadModel {
+  listLots(query: LotListQuery): Promise<{ rows: LotListRow[]; total: number }>;
+  walletSummary(userId: string): Promise<{ total: Cents; committed: Cents }>;
+  /** Extrato do mais novo para o mais antigo. eforeId pagina por cursor (estavel mesmo com novas linhas). */
+  ledger(userId: string, limit: number, beforeId: number | null): Promise<LedgerView[]>;
+  sellerTotals(sellerId: string): Promise<{ received: Cents; soldCount: number }>;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Catalogo externo (API publica de itens). So a BUSCA do leiloeiro depende dele.
+// ---------------------------------------------------------------------------------------------
+
+export interface CatalogSearchResult {
+  readonly items: readonly ItemSnapshot[];
+  readonly total: number;
+  readonly page: number;
+  readonly pageSize: number;
+  /** true quando veio do cache vencido ou do catalogo offline porque a API externa falhou. */
+  readonly degraded: boolean;
+}
+
+export interface Catalog {
+  search(query: string, page: number): Promise<CatalogSearchResult>;
+  /** Item completo para virar snapshot do lote. 404 se nao existe; 503 se o catalogo esta fora. */
+  getItem(sourceId: string): Promise<ItemSnapshot>;
+}

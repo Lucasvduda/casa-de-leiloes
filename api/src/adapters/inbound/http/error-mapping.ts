@@ -1,6 +1,7 @@
 import { DomainError, InvalidMoneyError, WalletInvariantError } from '../../../domain/errors.js';
 import {
   AuthenticationError,
+  CatalogUnavailableError,
   ConflictError,
   ForbiddenError,
   IntegrityError,
@@ -46,6 +47,14 @@ export function mapKnownError(error: unknown): MappedError | null {
       code: error.code,
       message: error.message,
       details: error.details,
+    };
+  }
+  if (error instanceof CatalogUnavailableError) {
+    return {
+      status: 503,
+      code: error.code,
+      message: error.message,
+      retryAfterSeconds: 10,
     };
   }
   if (error instanceof AuthenticationError) {

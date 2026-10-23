@@ -40,7 +40,9 @@ export async function runMigrations(
       )`);
 
     for (const file of files) {
-      const sql = readFileSync(join(dir, file), 'utf8');
+      // Quebras de linha normalizadas: o mesmo arquivo tem de dar o mesmo checksum no Windows (CRLF)
+      // e no Linux do deploy (LF), senao uma migracao ja aplicada pareceria "editada".
+      const sql = readFileSync(join(dir, file), 'utf8').replace(/\r\n/g, '\n');
       const checksum = createHash('sha256').update(sql).digest('hex');
       const existing = await client.query<{ checksum: string }>(
         'SELECT checksum FROM schema_migrations WHERE name = $1',

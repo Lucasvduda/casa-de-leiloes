@@ -8,12 +8,12 @@ import type { LotStatus } from '../../../domain/lot.js';
 import { cents } from '../../../domain/money.js';
 import type { Queryable } from './pool.js';
 
-const COLUMNS = `
+export const LOT_COLUMNS = `
   id, seller_id, title, item, starting_bid_cents, min_increment_cents, starts_at, ends_at, status,
   current_amount_cents, leader_id, bid_count, head_seq, head_hash, seal, extension_count,
   created_at, closed_at, cancelled_at`;
 
-interface LotRow {
+export interface LotRow {
   id: string;
   seller_id: string;
   title: string;
@@ -63,14 +63,16 @@ export class PgLotRepository implements LotRepository {
 
   async lockById(id: string): Promise<LotRecord | null> {
     const { rows } = await this.db.query<LotRow>(
-      `SELECT ${COLUMNS} FROM lots WHERE id = $1 FOR UPDATE`,
+      `SELECT ${LOT_COLUMNS} FROM lots WHERE id = $1 FOR UPDATE`,
       [id],
     );
     return rows[0] === undefined ? null : mapLot(rows[0]);
   }
 
   async findById(id: string): Promise<LotRecord | null> {
-    const { rows } = await this.db.query<LotRow>(`SELECT ${COLUMNS} FROM lots WHERE id = $1`, [id]);
+    const { rows } = await this.db.query<LotRow>(`SELECT ${LOT_COLUMNS} FROM lots WHERE id = $1`, [
+      id,
+    ]);
     return rows[0] === undefined ? null : mapLot(rows[0]);
   }
 
