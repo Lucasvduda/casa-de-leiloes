@@ -10,13 +10,14 @@
     "start": "node dist/main.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint .",
-    "test": "vitest run",
+    "test": "npm run test:unit && npm run test:int",
+    "test:unit": "vitest run",
+    "test:int": "vitest run --config vitest.int.config.ts",
     "test:watch": "vitest"
   },
   "dependencies": {
     "@node-rs/argon2": "^2.2.2",
     "cookie-parser": "^1.4.7",
-    "drizzle-orm": "^0.45.4",
     "express": "^5.3.0",
     "express-rate-limit": "^8.7.1",
     "helmet": "^8.3.0",
@@ -29,6 +30,7 @@
     "@types/express": "^5.0.6",
     "@types/pg": "^8.23.1",
     "@types/supertest": "^7.2.1",
+    "embedded-postgres": "^18.4.0-beta.17",
     "pino-pretty": "^13.2.0",
     "supertest": "^7.3.1"
   }

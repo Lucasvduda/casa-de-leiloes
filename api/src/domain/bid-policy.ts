@@ -1,4 +1,4 @@
-﻿import type { LeadingBid, LotState } from './lot.js';
+import type { LeadingBid, LotState } from './lot.js';
 import { lotPhase } from './lot.js';
 import type { Cents } from './money.js';
 import { addCents } from './money.js';

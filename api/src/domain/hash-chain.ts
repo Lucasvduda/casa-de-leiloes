@@ -1,4 +1,4 @@
-﻿import type { Cents } from './money.js';
+import type { Cents } from './money.js';
 
 /**
  * Historico de lances a prova de adulteracao.
@@ -61,8 +61,8 @@ export interface ChainVerification {
  * JSON nao tem ambiguidade de fronteira entre campos ("ab"+"c" vs "a"+"bc"),
  * e a etiqueta impede reaproveitar o MAC de um tipo de mensagem como outro.
  */
-function canonical(
-  tag: 'genesis' | 'bid' | 'seal' | 'bidder',
+export function canonical(
+  tag: 'genesis' | 'bid' | 'seal' | 'bidder' | 'receipt',
   ...fields: (string | number)[]
 ): string {
   return JSON.stringify([tag, ...fields]);

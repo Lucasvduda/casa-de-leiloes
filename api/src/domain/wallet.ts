@@ -1,4 +1,4 @@
-﻿import { WalletInvariantError } from './errors.js';
+import { WalletInvariantError } from './errors.js';
 import type { Cents } from './money.js';
 import { addCents, subCents } from './money.js';
 
