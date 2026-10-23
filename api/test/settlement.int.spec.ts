@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Actor } from '../src/application/ports.js';
+import { SettleLot } from '../src/application/usecases/settle-lot.js';
 import { HOUR, MIN, createHarness, reais } from './support/harness.js';
 import type { Harness } from './support/harness.js';
 import { createTestDb } from './support/test-db.js';
@@ -321,8 +322,73 @@ describe('agendador: settleDue', () => {
 
     // desfaz a adulteracao: o lote volta a poder ser liquidado normalmente
     await raw.query(`UPDATE bids SET amount_cents = $2 WHERE lot_id = $1`, [bad.id, reais(100)]);
+    // Em quarentena: reparar nao basta, o lote so volta a ser tentado depois do periodo.
+    expect(await h.settleLot.settleDue(50)).toEqual({ settled: 0, failed: [] });
+    expect((await h.lotRow(bad.id)).status).toBe('open');
+    h.clock.advance(6 * MIN);
     expect((await h.settleLot.settleDue(50)).settled).toBe(1);
     expect((await h.lotRow(bad.id)).status).toBe('closed');
+  });
+
+  it('lote que falhou fica em quarentena: nao e reprocessado e nao ocupa a fila dos demais', async () => {
+    await drainDue();
+    const seller = await h.seedUser('seller');
+    const bidder = await h.seedUser('bidder');
+    await h.fund(bidder, reais(50_000));
+    const bad = await h.newLot(seller, { durationMs: 10 * MIN });
+    await bid(bidder, bad.id, reais(100));
+    const raw = await db.rawClient();
+    await raw.query(`SET session_replication_role = replica`);
+    await raw.query(`UPDATE bids SET amount_cents = 1 WHERE lot_id = $1`, [bad.id]);
+    h.clock.advance(11 * MIN);
+
+    // 1a varredura: falha e entra em quarentena. O lote ruim e o mais antigo da fila.
+    const first = await h.settleLot.settleDue(1);
+    expect(first.failed.map((f) => f.lotId)).toEqual([bad.id]);
+
+    // Com limite 1, sem quarentena o lote ruim ocuparia a vaga para sempre e `good` nunca sairia.
+    const good = await h.newLot(seller, { durationMs: 1 * MIN });
+    await bid(bidder, good.id, reais(100));
+    h.clock.advance(2 * MIN);
+    const second = await h.settleLot.settleDue(1);
+    expect(second.failed).toEqual([]);
+    expect(second.settled).toBe(1);
+    expect((await h.lotRow(good.id)).status).toBe('closed');
+    expect((await h.lotRow(bad.id)).status).toBe('open');
+
+    // Cura e conserta o dado: ao fim da quarentena volta sozinho.
+    await raw.query(`UPDATE bids SET amount_cents = $2 WHERE lot_id = $1`, [bad.id, reais(100)]);
+    h.clock.advance(6 * MIN);
+    expect((await h.settleLot.settleDue(1)).settled).toBe(1);
+    expect((await h.lotRow(bad.id)).status).toBe('closed');
+  });
+
+  it('a quarentena tem teto: acima dele o lote volta a ser tentado (memoria nunca cresce sem fim)', async () => {
+    await drainDue();
+    const settler = new SettleLot({ ...h.base, maxQuarantined: 1 });
+    const seller = await h.seedUser('seller');
+    const bidder = await h.seedUser('bidder');
+    await h.fund(bidder, reais(50_000));
+    const raw = await db.rawClient();
+    await raw.query(`SET session_replication_role = replica`);
+    const tampered: string[] = [];
+    for (let i = 0; i < 2; i++) {
+      const bad = await h.newLot(seller, { durationMs: 10 * MIN });
+      await bid(bidder, bad.id, reais(100));
+      await raw.query(`UPDATE bids SET amount_cents = 1 WHERE lot_id = $1`, [bad.id]);
+      tampered.push(bad.id);
+    }
+    h.clock.advance(11 * MIN);
+
+    expect((await settler.settleDue(50)).failed).toHaveLength(2); // os dois falham; so um cabe na quarentena
+    expect((await settler.settleDue(50)).failed).toHaveLength(1); // o que ficou de fora e tentado de novo
+    expect((await settler.settleDue(50)).failed).toHaveLength(1);
+
+    // Desfaz a adulteracao: a auditoria final da suite exige o banco integro.
+    await raw.query(`UPDATE bids SET amount_cents = $2 WHERE lot_id = ANY($1::uuid[])`, [
+      tampered,
+      reais(100),
+    ]);
   });
 });
 

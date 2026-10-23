@@ -15,7 +15,9 @@ import { loadSession } from './middlewares/session.js';
 import type { CookieSettings } from './middlewares/session.js';
 import { accountRoutes } from './routes/account-routes.js';
 import { authRoutes } from './routes/auth-routes.js';
+import { eventsRoutes } from './routes/events-routes.js';
 import { lotsRoutes } from './routes/lots-routes.js';
+import type { LotEventHub } from './sse/lot-event-hub.js';
 
 export interface ApiDeps {
   readonly auth: AuthService;
@@ -28,6 +30,7 @@ export interface ApiDeps {
   readonly deposit: Deposit;
   readonly audit: AuditLot;
   readonly catalog: Catalog;
+  readonly events: LotEventHub;
 }
 
 /**
@@ -60,6 +63,7 @@ export function createApiRouter(deps: ApiDeps): Router {
       limiters,
     }),
   );
+  router.use(eventsRoutes({ hub: deps.events, limiters }));
   router.use(
     accountRoutes({
       queries: deps.queries,

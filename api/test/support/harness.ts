@@ -196,6 +196,7 @@ export function createHarness(db: TestDb, clock = new FakeClock()) {
   }
 
   return {
+    base,
     mac,
     clock,
     events,

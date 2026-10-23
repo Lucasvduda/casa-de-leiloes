@@ -20,6 +20,8 @@ export interface RateLimitRules {
   readonly deposit: LimitRule;
   readonly catalog: LimitRule;
   readonly write: LimitRule;
+  /** Aberturas de transmissao em tempo real, por IP (freia laco de reconexao e varredura de salas). */
+  readonly events: LimitRule;
 }
 
 const MIN = 60_000;
@@ -33,6 +35,7 @@ export const DEFAULT_RATE_LIMITS: RateLimitRules = {
   deposit: { windowMs: MIN, limit: 20 },
   catalog: { windowMs: MIN, limit: 40 },
   write: { windowMs: MIN, limit: 120 },
+  events: { windowMs: MIN, limit: 30 },
 };
 
 const ipKey = (req: Request): string => ipKeyGenerator(req.ip ?? 'desconhecido');
@@ -87,6 +90,7 @@ export function createRateLimiters(rules: RateLimitRules) {
     deposit: limiter(rules.deposit, userOrIpKey),
     catalog: limiter(rules.catalog, userOrIpKey),
     write: limiter(rules.write, userOrIpKey),
+    events: limiter(rules.events, ipKey),
   };
 }
 

@@ -110,12 +110,22 @@ export async function settleLocked(
 }
 
 /** Liquidacao idempotente de um lote: chamar N vezes tem o mesmo efeito de chamar 1. */
+const DEFAULT_COOLDOWN_MS = 5 * 60_000;
+/** Teto da lista em memoria: se tudo falhar ao mesmo tempo, volta a tentar em vez de crescer sem fim. */
+const MAX_QUARANTINED = 1_000;
+
 export class SettleLot {
+  /** lotId -> instante (ms) em que volta a ser elegivel. Em memoria: reiniciar o processo zera. */
+  private readonly quarantine = new Map<string, number>();
+
   constructor(
     private readonly deps: {
       uow: UnitOfWork;
       clock: Clock;
       events: EventPublisher;
+      failureCooldownMs?: number;
+      /** Teto da quarentena em memoria (padrao 1000). */
+      maxQuarantined?: number;
     } & SettleDeps,
   ) {}
 
@@ -136,13 +146,25 @@ export class SettleLot {
     return outcome;
   }
 
-  /** Varredura do agendador: liquida todo lote vencido, isolando falha por lote. */
+  /**
+   * Varredura do agendador: liquida todo lote vencido, isolando falha por lote.
+   *
+   * Lote que FALHOU (ex.: historico adulterado) entra em quarentena por `failureCooldownMs`: nao e
+   * reprocessado nem logado a cada varredura, e nao ocupa a fila do lote de `limit` (um punhado de
+   * lotes envenenados nao pode atrasar a liquidacao dos demais). Passada a quarentena, tenta de novo.
+   */
   async settleDue(
     limit = 50,
   ): Promise<{ settled: number; failed: { lotId: string; error: unknown }[] }> {
-    const ids = await this.deps.uow.run((repos) =>
-      repos.lots.findDueIds(this.deps.clock.now(), limit),
+    const now = this.deps.clock.now();
+    const nowMs = now.getTime();
+    for (const [lotId, retryAt] of this.quarantine) {
+      if (retryAt <= nowMs) this.quarantine.delete(lotId);
+    }
+    const candidates = await this.deps.uow.run((repos) =>
+      repos.lots.findDueIds(now, limit + this.quarantine.size),
     );
+    const ids = candidates.filter((id) => !this.quarantine.has(id)).slice(0, limit);
     let settled = 0;
     const failed: { lotId: string; error: unknown }[] = [];
     for (const lotId of ids) {
@@ -151,6 +173,9 @@ export class SettleLot {
         if (out.kind === 'sold' || out.kind === 'closed_no_winner') settled += 1;
       } catch (error) {
         failed.push({ lotId, error });
+        if (this.quarantine.size < (this.deps.maxQuarantined ?? MAX_QUARANTINED)) {
+          this.quarantine.set(lotId, nowMs + (this.deps.failureCooldownMs ?? DEFAULT_COOLDOWN_MS));
+        }
       }
     }
     return { settled, failed };

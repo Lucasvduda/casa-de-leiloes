@@ -16,6 +16,8 @@ import { CreateLot } from '../../src/application/usecases/create-lot.js';
 import { Deposit } from '../../src/application/usecases/deposit.js';
 import { PlaceBid } from '../../src/application/usecases/place-bid.js';
 import { SettleLot } from '../../src/application/usecases/settle-lot.js';
+import { LotEventHub } from '../../src/adapters/inbound/http/sse/lot-event-hub.js';
+import type { HubLimits } from '../../src/adapters/inbound/http/sse/lot-event-hub.js';
 import { FakeCatalog } from './fake-catalog.js';
 import { FakeClock, SECRET } from './harness.js';
 import type { TestDb } from './test-db.js';
@@ -32,6 +34,7 @@ export const LOOSE_RATE_LIMITS: RateLimitRules = {
   deposit: HUGE,
   catalog: HUGE,
   write: HUGE,
+  events: HUGE,
 };
 
 /** argon2id de verdade, so com custo baixo para a suite nao demorar. */
@@ -57,6 +60,7 @@ export interface HttpHarnessOptions {
   readonly cookieName?: string;
   readonly cookieSecure?: boolean;
   readonly clock?: FakeClock;
+  readonly hubLimits?: Partial<HubLimits>;
 }
 
 export function createHttpHarness(db: TestDb, options: HttpHarnessOptions = {}) {
@@ -80,6 +84,13 @@ export function createHttpHarness(db: TestDb, options: HttpHarnessOptions = {}) 
     mac,
     settle,
   });
+  const hub = new LotEventHub({
+    bus: events,
+    loadSnapshot: (viewer, lotId) => queries.getLot(viewer, lotId),
+    mac,
+    now: () => clock.now().getTime(),
+    limits: options.hubLimits ?? {},
+  });
   const app: Express = createApp({
     logger: pino({ level: 'silent' }),
     readinessProbe: async () => true,
@@ -94,9 +105,10 @@ export function createHttpHarness(db: TestDb, options: HttpHarnessOptions = {}) 
       deposit: new Deposit({ uow: db.uow }),
       audit: new AuditLot({ uow: db.uow, mac }),
       catalog,
+      events: hub,
     },
   });
-  return { app, auth, clock, hasher, cookie, catalog, events, settle, mac };
+  return { app, auth, clock, hasher, cookie, catalog, events, settle, mac, hub };
 }
 
 export type HttpHarness = ReturnType<typeof createHttpHarness>;
@@ -109,11 +121,19 @@ export const STRONG_PASSWORD = 'Senha-Forte-Do-Teste-42';
 
 export const sha256 = (value: string): string => createHash('sha256').update(value).digest('hex');
 
+function cookieHeaderOf(res: request.Response): string | null {
+  const raw = res.headers['set-cookie'] as unknown as string[] | undefined;
+  if (raw === undefined || raw.length === 0) return null;
+  return raw.map((cookie) => cookie.split(';')[0]).join('; ');
+}
+
 /** Cliente com cookie jar e token CSRF, como o navegador do usuario. */
 export class Client {
   readonly agent: ReturnType<typeof request.agent>;
   csrfToken: string | null = null;
   userId: string | null = null;
+  /** Cabecalho Cookie da sessao, para clientes que nao usam o agent (ex.: SSE via fetch). */
+  cookieHeader: string | null = null;
 
   constructor(readonly app: Express) {
     this.agent = request.agent(app);
@@ -133,6 +153,7 @@ export class Client {
     if (res.status === 201) {
       this.csrfToken = res.body.csrfToken;
       this.userId = res.body.user.id;
+      this.cookieHeader = cookieHeaderOf(res);
     }
     return { res, body };
   }
@@ -142,6 +163,7 @@ export class Client {
     if (res.status === 200) {
       this.csrfToken = res.body.csrfToken;
       this.userId = res.body.user.id;
+      this.cookieHeader = cookieHeaderOf(res);
     }
     return res;
   }
