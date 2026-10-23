@@ -1,5 +1,6 @@
 import type { NextFunction, Request, Response } from 'express';
 import type { Logger } from 'pino';
+import { loggablePath } from '../../../../infrastructure/log-safety.js';
 import { mapKnownError } from '../error-mapping.js';
 import { HttpError } from '../http-error.js';
 
@@ -41,7 +42,10 @@ export function createErrorHandler(logger: Logger) {
     const known = mapKnownError(err);
     if (known !== null) {
       if (known.status >= 500) {
-        logger.warn({ err, requestId: req.id, path: req.path }, 'transient_infrastructure_error');
+        logger.warn(
+          { err, requestId: req.id, path: loggablePath(req.originalUrl) },
+          'transient_infrastructure_error',
+        );
       }
       if (known.retryAfterSeconds !== undefined) {
         res.setHeader('Retry-After', String(known.retryAfterSeconds));
@@ -71,7 +75,10 @@ export function createErrorHandler(logger: Logger) {
       return;
     }
 
-    logger.error({ err, requestId: req.id, path: req.path, method: req.method }, 'unhandled_error');
+    logger.error(
+      { err, requestId: req.id, path: loggablePath(req.originalUrl), method: req.method },
+      'unhandled_error',
+    );
     res.status(500).json({
       error: { code: 'INTERNAL_ERROR', message: 'Erro interno.', requestId: req.id },
     } satisfies ErrorBody);

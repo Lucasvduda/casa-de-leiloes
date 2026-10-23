@@ -200,6 +200,16 @@ describe('cadastro', () => {
     expect([201, 400]).toContain(res.status);
   });
 
+  it('login com e-mail contendo byte nulo ou controle -> 400 (regressao do fuzz: era 500)', async () => {
+    for (const email of ['\u0000', 'a\u0000@b.cc', 'a@b.cc\u0007', 'a\n@b.cc']) {
+      const res = await request(h.app)
+        .post('/api/auth/login')
+        .send({ email, password: 'x'.repeat(12) });
+      expect(res.status, JSON.stringify(email)).toBe(400);
+      expect(res.body.error.code).toBe('VALIDATION_ERROR');
+    }
+  });
+
   it('JSON malformado -> 400 INVALID_JSON; corpo gigante -> 413; tipo errado -> 415', async () => {
     const bad = await request(h.app)
       .post('/api/auth/register')

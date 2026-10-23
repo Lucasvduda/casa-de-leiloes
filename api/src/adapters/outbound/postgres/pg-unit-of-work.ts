@@ -44,6 +44,10 @@ export class PgUnitOfWork implements UnitOfWork {
     work: (repos: Repositories) => Promise<T>,
   ): Promise<T> {
     const client = await this.pool.connect();
+    // Cliente emprestado nao tem o ouvinte de erro do pool: se a conexao cair ENTRE duas consultas,
+    // o evento 'error' sem ouvinte derrubaria o processo. A falha aparece na proxima consulta.
+    const swallow = (): void => undefined;
+    client.on('error', swallow);
     let broken = false;
     try {
       await client.query(begin);
@@ -59,6 +63,7 @@ export class PgUnitOfWork implements UnitOfWork {
       }
       throw error;
     } finally {
+      client.removeListener('error', swallow);
       client.release(broken);
     }
   }

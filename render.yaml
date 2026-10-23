@@ -1,0 +1,36 @@
+# Blueprint do Render (https://render.com/docs/blueprint-spec).
+# Um unico servico: a API Node e o front React saem da MESMA imagem Docker, na mesma origem.
+# O banco e o PostgreSQL gratuito do Neon (o Postgres gratuito do Render expira em 30 dias).
+services:
+  - type: web
+    name: casa-de-leiloes
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: free
+    # Mesma regiao do banco no Neon (AWS us-east-2, Ohio): menos latencia entre os dois.
+    region: ohio
+    # Liveness barato: nao toca no banco (o Neon dorme quando ocioso). /ready confere o banco.
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: LOG_LEVEL
+        value: info
+      # Informar no painel do Render: a string de conexao DIRETA do Neon (sem "-pooler"),
+      # terminada em ?sslmode=require. Veja o README.
+      - key: DATABASE_URL
+        sync: false
+      # Gerado pelo Render na primeira criacao e mantido nos deploys seguintes. Sela o historico
+      # de lances (HMAC): trocar essa chave invalida a verificacao dos lances ja gravados.
+      - key: INTEGRITY_SECRET
+        generateValue: true
+      - key: DB_POOL_MAX
+        value: '10'
+      # Cria o leiloeiro, os 2 licitantes e os 6 lotes de demonstracao se ainda nao existirem.
+      - key: SEED_ON_BOOT
+        value: 'true'
+      # Atras do HTTPS do Render o cookie vai com Secure e prefixo __Host- (padrao em producao).
+      - key: WEB_DIST_DIR
+        value: /app/web/dist

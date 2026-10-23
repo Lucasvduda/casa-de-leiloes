@@ -2,6 +2,7 @@ import express from 'express';
 import type { Express } from 'express';
 import helmet from 'helmet';
 import type { Logger } from 'pino';
+import { loggablePath } from '../../../infrastructure/log-safety.js';
 import { createApiRouter } from './api-router.js';
 import type { ApiDeps } from './api-router.js';
 import { createErrorHandler, notFoundHandler } from './middlewares/error-handler.js';
@@ -38,7 +39,13 @@ export function createApp(deps: AppDeps): Express {
     res.on('finish', () => {
       const ms = Number(process.hrtime.bigint() - startedAt) / 1e6;
       logger.info(
-        { requestId: req.id, method: req.method, path: req.path, status: res.statusCode, ms },
+        {
+          requestId: req.id,
+          method: req.method,
+          path: loggablePath(req.originalUrl),
+          status: res.statusCode,
+          ms,
+        },
         'http_request',
       );
     });

@@ -40,6 +40,8 @@ export async function createTestDb(maxConnections = 20): Promise<TestDb> {
     url: url.toString(),
     async rawClient() {
       const client = new pg.Client({ connectionString: url.toString() });
+      // Testes de resiliencia matam conexoes de proposito: o erro assincrono nao pode derrubar a suite.
+      client.on('error', () => undefined);
       await client.connect();
       clients.push(client);
       return client;

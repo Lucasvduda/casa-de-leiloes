@@ -13,3 +13,7 @@ coverage/
 *.pdf
 
 web/.artifacts/
+
+# Notas internas de planejamento (ficam so na maquina de quem desenvolve)
+ENUNCIADO.md
+PLANO.md

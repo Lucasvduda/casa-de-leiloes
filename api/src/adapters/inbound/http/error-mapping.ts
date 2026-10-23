@@ -33,10 +33,34 @@ const TRANSIENT_DB_CODES = new Set([
 
 const TRANSIENT_NETWORK_CODES = new Set(['ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'EPIPE']);
 
+/**
+ * Erros do driver `pg` que NAO trazem codigo (nascem no cliente, nao no servidor): conexao caiu no
+ * meio, pool sem conexao livre a tempo, consulta passou do limite do cliente.
+ */
+const TRANSIENT_DRIVER_MESSAGES = [
+  /^Connection terminated/i,
+  /timeout exceeded when trying to connect/i,
+  /Query read timeout/i,
+  /Client has encountered a connection error/i,
+  /Client was closed and is not queryable/i,
+  /Cannot use a pool after calling end/i,
+];
+
 export function isTransientInfrastructureError(error: unknown): boolean {
   const code = (error as { code?: unknown } | null)?.code;
-  if (typeof code !== 'string') return false;
-  return TRANSIENT_DB_CODES.has(code) || TRANSIENT_NETWORK_CODES.has(code);
+  if (typeof code === 'string') {
+    return TRANSIENT_DB_CODES.has(code) || TRANSIENT_NETWORK_CODES.has(code);
+  }
+  if (error instanceof Error) {
+    return TRANSIENT_DRIVER_MESSAGES.some((pattern) => pattern.test(error.message));
+  }
+  return false;
+}
+
+/** SQLSTATE classe 22 ("data exception"): ex.: 22021 byte invalido para UTF8, 22003 numero fora de faixa. */
+export function isBadDataDbError(error: unknown): boolean {
+  const code = (error as { code?: unknown } | null)?.code;
+  return typeof code === 'string' && /^22[0-9A-Z]{3}$/.test(code);
 }
 
 /** Traduz o erro da aplicacao/dominio para o contrato HTTP. `null` = nao e erro conhecido (500). */
@@ -77,6 +101,15 @@ export function mapKnownError(error: unknown): MappedError | null {
   }
   if (error instanceof DomainError) {
     return { status: 422, code: error.code, message: error.message };
+  }
+  if (isBadDataDbError(error)) {
+    // Rede de seguranca: o Postgres recusou o DADO (byte nulo, sequencia invalida, fora de faixa).
+    // A validacao deveria ter barrado antes; mesmo assim e erro de quem enviou, nao do servidor.
+    return {
+      status: 400,
+      code: 'INVALID_INPUT',
+      message: 'Dados invalidos.',
+    };
   }
   if (isTransientInfrastructureError(error)) {
     return {

@@ -8,7 +8,11 @@ import {
   NotFoundError,
   ValidationError,
 } from '../../../application/errors.js';
-import { isTransientInfrastructureError, mapKnownError } from './error-mapping.js';
+import {
+  isBadDataDbError,
+  isTransientInfrastructureError,
+  mapKnownError,
+} from './error-mapping.js';
 
 describe('mapKnownError: erro de dominio -> status HTTP', () => {
   it.each([
@@ -56,6 +60,54 @@ describe('mapKnownError: erro de dominio -> status HTTP', () => {
       code: 'TEMPORARILY_UNAVAILABLE',
       retryAfterSeconds: expect.any(Number),
     });
+  });
+
+  it.each([
+    ['conexao encerrada no meio', new Error('Connection terminated unexpectedly')],
+    ['conexao encerrada por timeout', new Error('Connection terminated due to connection timeout')],
+    ['pool sem conexao livre a tempo', new Error('timeout exceeded when trying to connect')],
+    ['consulta passou do limite do cliente', new Error('Query read timeout')],
+    [
+      'cliente em erro de conexao',
+      new Error('Client has encountered a connection error and is not queryable'),
+    ],
+    ['pool encerrado (desligamento)', new Error('Cannot use a pool after calling end on the pool')],
+  ])('erro SEM codigo do driver pg (%s) -> 503 com Retry-After, nunca 500', (_name, error) => {
+    expect(isTransientInfrastructureError(error)).toBe(true);
+    expect(mapKnownError(error)).toMatchObject({
+      status: 503,
+      code: 'TEMPORARILY_UNAVAILABLE',
+      retryAfterSeconds: expect.any(Number),
+    });
+  });
+
+  it('erro comum cuja mensagem so PARECE com o do driver continua sendo bug (500)', () => {
+    expect(
+      isTransientInfrastructureError(new Error('falha ao calcular: Connection terminated')),
+    ).toBe(false);
+    expect(isTransientInfrastructureError(new Error('algo timeout exceeded'))).toBe(false);
+  });
+
+  it.each([
+    ['byte nulo / sequencia invalida (22021)', { code: '22021' }],
+    ['numero fora de faixa (22003)', { code: '22003' }],
+    ['formato de data invalido (22007)', { code: '22007' }],
+    ['uuid malformado (22P02)', { code: '22P02' }],
+  ])('dado recusado pelo Postgres (%s) -> 400 sem detalhe interno, nunca 500', (_name, base) => {
+    const error = Object.assign(new Error('invalid byte sequence for encoding "UTF8": 0x00'), base);
+    expect(isBadDataDbError(error)).toBe(true);
+    const mapped = mapKnownError(error);
+    expect(mapped).toMatchObject({ status: 400, code: 'INVALID_INPUT' });
+    expect(JSON.stringify(mapped)).not.toMatch(/UTF8|0x00/);
+  });
+
+  it.each([
+    ['classe 23 (integridade)', { code: '23505' }],
+    ['classe 21', { code: '21000' }],
+    ['classe 220 com tamanho errado', { code: '2202' }],
+    ['minusculas', { code: '22p02' }],
+  ])('%s NAO e tratado como dado ruim', (_name, error) => {
+    expect(isBadDataDbError(error)).toBe(false);
   });
 
   it.each([

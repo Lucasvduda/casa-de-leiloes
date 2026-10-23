@@ -37,3 +37,47 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+
+  # Valida a imagem que o Render vai construir: build real (Alpine/musl, modulos nativos do argon2),
+  # subida contra um Postgres de verdade e uma volta completa pela API e pelo front.
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build da imagem
+        run: docker build -t leilao:ci .
+      - name: Sobe Postgres e a aplicacao
+        run: |
+          docker network create leilao-net
+          docker run -d --name db --network leilao-net \
+            -e POSTGRES_USER=leilao -e POSTGRES_PASSWORD=leilao -e POSTGRES_DB=leilao \
+            -e POSTGRES_INITDB_ARGS=--encoding=UTF8 postgres:16-alpine
+          for i in $(seq 1 30); do
+            docker exec db pg_isready -U leilao -d leilao && break
+            sleep 2
+          done
+          docker run -d --name app --network leilao-net -p 3000:3000 \
+            -e NODE_ENV=production -e PORT=3000 \
+            -e DATABASE_URL=postgres://leilao:leilao@db:5432/leilao \
+            -e INTEGRITY_SECRET=ci-only-secret-0123456789abcdef0123456789 \
+            -e SEED_ON_BOOT=true -e COOKIE_SECURE=false \
+            leilao:ci
+          for i in $(seq 1 45); do
+            curl -fsS http://localhost:3000/ready && break
+            sleep 2
+          done
+      - name: Verifica API, front e login (argon2 nativo)
+        run: |
+          set -e
+          curl -fsS http://localhost:3000/ready
+          total=$(curl -fsS "http://localhost:3000/api/lots?phase=live" | python3 -c "import sys,json; print(json.load(sys.stdin)['total'])")
+          test "$total" = "3"
+          curl -fsS http://localhost:3000/ | grep -q 'id="root"'
+          curl -fsS http://localhost:3000/lotes/qualquer-rota-do-react | grep -q 'id="root"'
+          code=$(curl -s -o /dev/null -w '%{http_code}' -X POST http://localhost:3000/api/auth/login \
+            -H 'content-type: application/json' \
+            -d '{"email":"ana@demo.leilao","password":"Demo-Leilao-2026!"}')
+          test "$code" = "200"
+      - name: Logs da aplicacao (se falhou)
+        if: failure()
+        run: docker logs app

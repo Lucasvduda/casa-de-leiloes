@@ -109,7 +109,11 @@ export function RegisterPage() {
             value={displayName}
             onChange={(e) => setDisplayName(e.target.value)}
             error={errors.displayName}
-            hint="Aparece para o leiloeiro e nos comprovantes."
+            hint={
+              role === 'seller'
+                ? 'Aparece como nome da casa de leilões nos lotes e comprovantes.'
+                : 'Só você vê. Nos leilões, os outros aparecem como "Licitante #código", sem nome.'
+            }
           />
           <TextField
             label="E-mail"

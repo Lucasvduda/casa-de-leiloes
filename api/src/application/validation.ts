@@ -8,6 +8,10 @@ import type { ItemSnapshot } from './ports.js';
 // Caracteres de controle em texto vindo de fora (inclusive da API publica) quebram log, UI e hash.
 // eslint-disable-next-line no-control-regex
 const CONTROL_CHARS = /[\u0000-\u001F\u007F]/g;
+const hasControlChars = (value: string): boolean => {
+  CONTROL_CHARS.lastIndex = 0;
+  return CONTROL_CHARS.test(value);
+};
 const cleanText = (max: number, min = 0) =>
   z
     .string()
@@ -94,7 +98,13 @@ export const registerSchema = z.object({
 
 /** No login nao se revela a politica de senha: so formato minimo, para nao alimentar o argon2 com lixo. */
 export const loginSchema = z.object({
-  email: z.string().trim().toLowerCase().max(254),
+  // Sem caractere de controle: o byte nulo (\u0000) chegaria ao Postgres e viraria 500.
+  email: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .max(254)
+    .refine((value) => !hasControlChars(value), 'e-mail invalido'),
   password: z.string().min(1).max(128),
 });
 
