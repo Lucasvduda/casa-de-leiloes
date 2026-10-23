@@ -9,6 +9,7 @@
     "build": "tsc -p tsconfig.build.json",
     "start": "node dist/main.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "catalog:offline": "tsx scripts/build-offline-catalog.ts",
     "lint": "eslint .",
     "test": "npm run test:unit && npm run test:int",
     "test:unit": "vitest run",
