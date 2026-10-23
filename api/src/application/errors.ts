@@ -7,6 +7,13 @@ export class NotFoundError extends DomainError {
   }
 }
 
+/** Nao autenticado (sem sessao valida) ou credenciais incorretas. */
+export class AuthenticationError extends DomainError {
+  constructor(code: string, message: string) {
+    super(code, message);
+  }
+}
+
 /** Autenticado, mas sem permissao para a operacao. */
 export class ForbiddenError extends DomainError {
   constructor(code: string, message: string) {

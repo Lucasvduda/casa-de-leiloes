@@ -111,11 +111,58 @@ export interface ReceiptRepository {
   findByCode(code: string): Promise<StoredReceipt | null>;
 }
 
+export interface StoredUser {
+  readonly id: string;
+  /** Sempre minusculo e aparado. */
+  readonly email: string;
+  readonly displayName: string;
+  /** Hash argon2id (PHC). Nunca sai da camada de aplicacao. */
+  readonly passwordHash: string;
+  readonly role: Role;
+  readonly createdAt: Date;
+}
+
+export interface UserRepository {
+  insert(user: StoredUser): Promise<void>;
+  findByEmail(email: string): Promise<StoredUser | null>;
+  findById(id: string): Promise<StoredUser | null>;
+}
+
+export interface StoredSession {
+  /** SHA-256 (hex) do token do cookie. O token em si nunca e persistido. */
+  readonly idHash: string;
+  readonly userId: string;
+  readonly csrfToken: string;
+  readonly createdAt: Date;
+  readonly expiresAt: Date;
+}
+
+export interface SessionRepository {
+  insert(session: StoredSession): Promise<void>;
+  /** So devolve sessao ainda valida (`expiresAt > now`), junto com o usuario dono dela. */
+  findValid(
+    idHash: string,
+    now: Date,
+  ): Promise<{ session: StoredSession; user: StoredUser } | null>;
+  delete(idHash: string): Promise<void>;
+  /** Mantem so as `keep` sessoes mais recentes do usuario (limita acumulo por login repetido). */
+  trimToNewest(userId: string, keep: number): Promise<void>;
+  deleteExpired(now: Date): Promise<number>;
+}
+
+export interface PasswordHasher {
+  hash(plain: string): Promise<string>;
+  /** Nunca lanca por hash malformado: devolve false. */
+  verify(hash: string, plain: string): Promise<boolean>;
+}
+
 export interface Repositories {
   readonly lots: LotRepository;
   readonly bids: BidRepository;
   readonly wallets: WalletRepository;
   readonly receipts: ReceiptRepository;
+  readonly users: UserRepository;
+  readonly sessions: SessionRepository;
 }
 
 export interface UnitOfWork {

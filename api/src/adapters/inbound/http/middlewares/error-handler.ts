@@ -1,5 +1,6 @@
 import type { NextFunction, Request, Response } from 'express';
 import type { Logger } from 'pino';
+import { mapKnownError } from '../error-mapping.js';
 import { HttpError } from '../http-error.js';
 
 interface ErrorBody {
@@ -34,6 +35,27 @@ export function createErrorHandler(logger: Logger) {
         },
       };
       res.status(err.status).json(body);
+      return;
+    }
+
+    const known = mapKnownError(err);
+    if (known !== null) {
+      if (known.status >= 500) {
+        logger.warn({ err, requestId: req.id, path: req.path }, 'transient_infrastructure_error');
+      }
+      if (known.retryAfterSeconds !== undefined) {
+        res.setHeader('Retry-After', String(known.retryAfterSeconds));
+      }
+      res.status(known.status).json({
+        error: {
+          code: known.code,
+          message: known.message,
+          requestId: req.id,
+          ...(known.details !== undefined && Object.keys(known.details).length > 0
+            ? { details: known.details }
+            : {}),
+        },
+      } satisfies ErrorBody);
       return;
     }
 

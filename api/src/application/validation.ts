@@ -51,6 +51,55 @@ export const createLotSchema = z.object({
 
 export type CreateLotInput = z.infer<typeof createLotSchema>;
 
+/** E-mail normalizado: aparado e minusculo, para a unicidade nao depender de maiusculas. */
+const email = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .pipe(z.email('e-mail invalido').max(254, 'e-mail muito longo'));
+
+/** Senhas obviamente ruins, recusadas no cadastro (a politica principal e o tamanho minimo). */
+const COMMON_PASSWORDS = new Set([
+  '12345678',
+  '123456789',
+  '1234567890',
+  '87654321',
+  'password',
+  'password1',
+  'senha123',
+  'senha1234',
+  'qwertyui',
+  'qwerty123',
+  'iloveyou',
+  'abc12345',
+  'admin123',
+  'leilao123',
+  '00000000',
+  '11111111',
+]);
+
+const newPassword = z
+  .string()
+  .min(8, 'use pelo menos 8 caracteres')
+  .max(128, 'use no maximo 128 caracteres')
+  .refine((p) => !COMMON_PASSWORDS.has(p.toLowerCase()), 'senha muito comum')
+  .refine((p) => new Set(p).size > 2, 'senha muito repetitiva');
+
+export const registerSchema = z.object({
+  email,
+  displayName: cleanText(60, 2),
+  password: newPassword,
+  role: z.enum(['seller', 'bidder']),
+});
+
+/** No login nao se revela a politica de senha: so formato minimo, para nao alimentar o argon2 com lixo. */
+export const loginSchema = z.object({
+  email: z.string().trim().toLowerCase().max(254),
+  password: z.string().min(1).max(128),
+});
+
+export type RegisterInput = z.infer<typeof registerSchema>;
+
 export function toValidationError(
   error: z.ZodError,
   message = 'Dados invalidos.',

@@ -2,6 +2,8 @@ import express from 'express';
 import type { Express } from 'express';
 import helmet from 'helmet';
 import type { Logger } from 'pino';
+import { createApiRouter } from './api-router.js';
+import type { ApiDeps } from './api-router.js';
 import { createErrorHandler, notFoundHandler } from './middlewares/error-handler.js';
 import { requestId } from './middlewares/request-id.js';
 
@@ -9,6 +11,8 @@ export interface AppDeps {
   readonly logger: Logger;
   /** Verifica dependencias criticas (banco). Liveness nao depende disso; readiness sim. */
   readonly readinessProbe: () => Promise<boolean>;
+  /** Rotas de negocio sob /api. Opcional para testar so a fundacao (health, erros, cabecalhos). */
+  readonly api?: ApiDeps;
 }
 
 /** Limite de corpo: nenhuma rota do leilao precisa de mais que isso. */
@@ -36,6 +40,10 @@ export function createApp(deps: AppDeps): Express {
   });
   app.use(helmet());
   app.use(express.json({ limit: JSON_BODY_LIMIT }));
+
+  if (deps.api !== undefined) {
+    app.use('/api', createApiRouter(deps.api));
+  }
 
   /** Liveness: o processo esta de pe. Nunca toca em banco. */
   app.get('/health', (_req, res) => {

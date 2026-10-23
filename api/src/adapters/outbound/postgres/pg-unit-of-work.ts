@@ -3,6 +3,8 @@ import type { Repositories, UnitOfWork } from '../../../application/ports.js';
 import { PgBidRepository } from './pg-bid-repository.js';
 import { PgLotRepository } from './pg-lot-repository.js';
 import { PgReceiptRepository } from './pg-receipt-repository.js';
+import { PgSessionRepository } from './pg-session-repository.js';
+import { PgUserRepository } from './pg-user-repository.js';
 import { PgWalletRepository } from './pg-wallet-repository.js';
 import type { Queryable } from './pool.js';
 
@@ -19,6 +21,8 @@ export function repositoriesFor(db: Queryable): Repositories {
     bids: new PgBidRepository(db),
     wallets: new PgWalletRepository(db),
     receipts: new PgReceiptRepository(db),
+    users: new PgUserRepository(db),
+    sessions: new PgSessionRepository(db),
   };
 }
 
