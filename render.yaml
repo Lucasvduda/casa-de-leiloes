@@ -28,7 +28,7 @@ services:
         generateValue: true
       - key: DB_POOL_MAX
         value: '10'
-      # Cria o leiloeiro, os 2 licitantes e os 6 lotes de demonstracao se ainda nao existirem.
+      # Cria o leiloeiro, os 2 licitantes e os 7 lotes de demonstracao se ainda nao existirem.
       - key: SEED_ON_BOOT
         value: 'true'
       # Atras do HTTPS do Render o cookie vai com Secure e prefixo __Host- (padrao em producao).
