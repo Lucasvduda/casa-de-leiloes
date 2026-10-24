@@ -7,9 +7,9 @@ no relógio decidida pelo servidor. Feito como resposta ao teste técnico Elite 
 
 |                     |                                                                    |
 | ------------------- | ------------------------------------------------------------------ |
-| **Aplicação**       | `https://<preencher-apos-o-deploy>.onrender.com`                   |
+| **Aplicação**       | `https://casa-de-leiloes-v0bc.onrender.com`                        |
 | **Primeiro acesso** | Pode levar até ~50 s (plano gratuito do Render dorme após 15 min). |
-| **Repositório**     | `https://github.com/<usuario>/<repositorio>`                       |
+| **Repositório**     | `https://github.com/Lucasvduda/casa-de-leiloes`                    |
 
 ## Contas de demonstração
 
@@ -130,7 +130,7 @@ As escritas (`POST`) exigem **cookie de sessão**, o cabeçalho **`X-CSRF-Token`
 `Content-Type: application/json`. Sem eles a resposta é `403` (`CSRF_INVALID`) ou `415`, de propósito.
 
 ```bash
-BASE=https://<seu-app>.onrender.com
+BASE=https://casa-de-leiloes-v0bc.onrender.com
 
 # 1. Login: guarda o cookie em jar.txt e devolve o csrfToken no corpo
 curl -s -c jar.txt -H 'Content-Type: application/json' \
@@ -292,7 +292,7 @@ Escolhi o plano gratuito de ambos. O Postgres gratuito do Render expira em 30 di
 3. **Render:** _New → Blueprint_ e aponte para o repositório. O `render.yaml` cria o serviço Docker.
    Cole a `DATABASE_URL` do Neon quando o painel pedir. O `INTEGRITY_SECRET` é gerado pelo Render e
    mantido entre os deploys.
-4. Quando estiver no ar, confira `https://<seu-app>.onrender.com/ready` e entre com uma conta demo.
+4. Quando estiver no ar, confira `https://casa-de-leiloes-v0bc.onrender.com/ready` e entre com uma conta demo.
 5. Nos logs do Render, procure `proxy_probe`: o campo `ip` deve ser o do visitante, não o de um proxy
    (se for sempre o mesmo, aumente `TRUST_PROXY_HOPS`).
 
